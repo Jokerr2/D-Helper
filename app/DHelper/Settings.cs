@@ -869,7 +869,7 @@ namespace GHelper
             {
                 var menuMode = new ToolStripMenuItem(mode.Value);
                 menuMode.Tag = mode.Key;
-                menuMode.Click += (sender, args) => { Program.modeControl.SetPerformanceMode(mode.Key); };
+                menuMode.Click += (sender, args) => { Program.modeControl.SetPerformanceMode(mode.Key, notify: true); };
                 menuMode.Margin = padding;
                 menuMode.Checked = (mode.Key == currentMode);
                 contextMenuStrip.Items.Add(menuMode);
@@ -1391,7 +1391,7 @@ namespace GHelper
                 coolId = Modes.FindByBase(AsusACPI.PerformanceDellCool);
             }
             if (coolId >= 0)
-                Program.modeControl.SetPerformanceMode(coolId);
+                Program.modeControl.SetPerformanceMode(coolId, notify: true);
         }
 
         public void InitAura()
@@ -2177,17 +2177,17 @@ namespace GHelper
 
         private void ButtonSilent_Click(object? sender, EventArgs e)
         {
-            Program.modeControl.SetPerformanceMode(AsusACPI.PerformanceSilent);
+            Program.modeControl.SetPerformanceMode(AsusACPI.PerformanceSilent, notify: true);
         }
 
         private void ButtonBalanced_Click(object? sender, EventArgs e)
         {
-            Program.modeControl.SetPerformanceMode(AsusACPI.PerformanceBalanced);
+            Program.modeControl.SetPerformanceMode(AsusACPI.PerformanceBalanced, notify: true);
         }
 
         private void ButtonTurbo_Click(object? sender, EventArgs e)
         {
-            Program.modeControl.SetPerformanceMode(AsusACPI.PerformanceTurbo);
+            Program.modeControl.SetPerformanceMode(AsusACPI.PerformanceTurbo, notify: true);
         }
 
 

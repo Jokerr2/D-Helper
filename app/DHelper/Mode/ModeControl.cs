@@ -183,6 +183,8 @@ namespace GHelper.Mode
                             {
                                 settings.ShowMode(showId);
                                 SetModeLabel();
+                                // Success toast is shown immediately via notify=true on click;
+                                // only toast again here on failure after CCTK returns.
                                 if (!ok)
                                     Program.toast.RunToast("Could not set mode — run D-Helper as Administrator?");
                             });
