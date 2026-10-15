@@ -36,6 +36,8 @@ internal sealed class SettingsForm : Form
     private readonly DarkSelect _modeDc;
     private readonly FlowLayoutPanel _root;
     private readonly List<Control> _fullWidth = new();
+    private readonly System.Windows.Forms.Timer _batteryDebounce;
+    private bool _suppressBatteryApply;
     private string _toast = "";
 
     public SettingsForm(
@@ -84,6 +86,14 @@ internal sealed class SettingsForm : Form
 
         _sensorTimer = new System.Windows.Forms.Timer { Interval = 4000 };
         _sensorTimer.Tick += (_, _) => UpdateSensors();
+
+        _batteryDebounce = new System.Windows.Forms.Timer { Interval = 250 };
+        _batteryDebounce.Tick += (_, _) =>
+        {
+            _batteryDebounce.Stop();
+            _ = ApplyBatteryAsync();
+        };
+
         VisibleChanged += (_, _) =>
         {
             if (Visible) { UpdateSensors(); _sensorTimer.Start(); }
@@ -252,8 +262,11 @@ internal sealed class SettingsForm : Form
             BackColor = UiTheme.Surface,
             TickStyle = TickStyle.None
         };
-        track.ValueChanged += (_, _) => value.Text = $"{track.Value}%";
-        track.MouseUp += (_, _) => ApplyBattery();
+        track.ValueChanged += (_, _) =>
+        {
+            value.Text = $"{track.Value}%";
+            ScheduleBatteryApply();
+        };
 
         select.SelectionChanged += (_, _) =>
         {
@@ -261,7 +274,7 @@ internal sealed class SettingsForm : Form
             track.Enabled = custom;
             value.Visible = custom;
             hint.Text = custom ? "Stop charging at" : "Preset charging mode";
-            ApplyBattery();
+            ScheduleBatteryApply();
         };
 
         card.Controls.AddRange(new Control[] { title, value, select, hint, track });
@@ -405,16 +418,24 @@ internal sealed class SettingsForm : Form
 
     public void RefreshFromCache()
     {
-        HighlightMode(_modes.Current);
-        _chargeSelect.SelectedItem = _battery.CurrentMode.ToString();
-        _chargeStop.Value = Math.Clamp(_battery.CustomStop, 55, 100);
-        _chargeStopValue.Text = $"{_chargeStop.Value}%";
-        bool custom = _battery.CurrentMode == ChargeMode.Custom;
-        _chargeStop.Enabled = custom;
-        _chargeStopValue.Visible = custom;
-        UpdateSensors();
-        if (!_hal.Capabilities.ThermalControl && string.IsNullOrEmpty(_toast))
-            Toast("Install Dell Optimizer or Command Configure");
+        _suppressBatteryApply = true;
+        try
+        {
+            HighlightMode(_modes.Current);
+            _chargeSelect.SelectedItem = _battery.CurrentMode.ToString();
+            _chargeStop.Value = Math.Clamp(_battery.CustomStop, 55, 100);
+            _chargeStopValue.Text = $"{_chargeStop.Value}%";
+            bool custom = _battery.CurrentMode == ChargeMode.Custom;
+            _chargeStop.Enabled = custom;
+            _chargeStopValue.Visible = custom;
+            UpdateSensors();
+            if (!_hal.Capabilities.ThermalControl && string.IsNullOrEmpty(_toast))
+                Toast("Install Dell Optimizer or Command Configure");
+        }
+        finally
+        {
+            _suppressBatteryApply = false;
+        }
     }
 
     private void UpdateSensors()
@@ -433,12 +454,30 @@ internal sealed class SettingsForm : Form
             Toast("Install Dell Optimizer or Command Configure");
             return;
         }
-        if (!_modes.Apply(mode, out var error))
-            Toast(error);
+
+        // Instant feedback — firmware write runs in the background.
+        HighlightMode(mode);
+        Toast($"Switched to {DisplayName(mode)}");
+        _ = ApplyModeAsync(mode);
     }
 
-    private void ApplyBattery()
+    private async Task ApplyModeAsync(ThermalMode mode)
     {
+        var (ok, error) = await _modes.ApplyAsync(mode).ConfigureAwait(true);
+        if (!ok && !IsDisposed)
+            Toast(string.IsNullOrWhiteSpace(error) ? "Mode change failed" : error);
+    }
+
+    private void ScheduleBatteryApply()
+    {
+        if (_suppressBatteryApply) return;
+        _batteryDebounce.Stop();
+        _batteryDebounce.Start();
+    }
+
+    private async Task ApplyBatteryAsync()
+    {
+        if (_suppressBatteryApply) return;
         if (!_hal.Capabilities.BatteryControl)
         {
             Toast("Install Dell Optimizer or Command Configure");
@@ -451,10 +490,10 @@ internal sealed class SettingsForm : Form
         int start = Math.Max(50, stop - 30);
         if (stop - start < 5) start = Math.Max(50, stop - 5);
 
-        if (!_battery.Apply(mode, start, stop, out var error))
-            Toast(error);
-        else
-            Toast(mode == ChargeMode.Custom ? $"Charge limit {stop}%" : $"Charge → {mode}");
+        Toast(mode == ChargeMode.Custom ? $"Charge limit {stop}%" : $"Charge → {mode}");
+        var (ok, error) = await _battery.ApplyAsync(mode, start, stop).ConfigureAwait(true);
+        if (!ok && !IsDisposed)
+            Toast(string.IsNullOrWhiteSpace(error) ? "Battery change failed" : error);
     }
 
     private void HighlightMode(ThermalMode mode)
@@ -540,7 +579,11 @@ internal sealed class SettingsForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _sensorTimer.Dispose();
+        if (disposing)
+        {
+            _sensorTimer.Dispose();
+            _batteryDebounce.Dispose();
+        }
         base.Dispose(disposing);
     }
 }

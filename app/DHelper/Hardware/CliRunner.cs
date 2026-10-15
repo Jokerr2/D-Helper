@@ -5,7 +5,7 @@ namespace DHelper.Hardware;
 
 internal static class CliRunner
 {
-    public static (int ExitCode, string StdOut, string StdErr) Run(string fileName, string arguments, int timeoutMs = 8000)
+    public static (int ExitCode, string StdOut, string StdErr) Run(string fileName, string arguments, int timeoutMs = 5000)
     {
         var psi = new ProcessStartInfo
         {
@@ -15,30 +15,39 @@ internal static class CliRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true,
-            // Avoid UTF8 decoder alloc cost when CLI is ASCII-heavy
-            StandardOutputEncoding = Encoding.Default,
-            StandardErrorEncoding = Encoding.Default
+            StandardOutputEncoding = Encoding.ASCII,
+            StandardErrorEncoding = Encoding.ASCII
         };
 
         using var process = new Process { StartInfo = psi };
-        var stdout = new StringBuilder(256);
-        var stderr = new StringBuilder(128);
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) stdout.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) stderr.AppendLine(e.Data); };
-
         process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+
+        // Sync read on caller thread (always a background thread from ApplyAsync).
+        // Faster and more reliable than BeginOutputReadLine + double WaitForExit.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
 
         if (!process.WaitForExit(timeoutMs))
         {
             try { process.Kill(true); } catch { /* ignore */ }
-            return (-1, stdout.ToString(), "Timed out");
+            return (-1, "", "Timed out");
         }
 
-        // Ensure async readers flush
-        process.WaitForExit(500);
-        return (process.ExitCode, stdout.ToString().Trim(), stderr.ToString().Trim());
+        // Brief wait for stream flush after exit
+        if (!Task.WaitAll(new Task[] { stdoutTask, stderrTask }, 1000))
+            return (process.ExitCode, Safe(stdoutTask), Safe(stderrTask));
+
+        return (process.ExitCode, stdoutTask.Result.Trim(), stderrTask.Result.Trim());
+    }
+
+    public static Task<(int ExitCode, string StdOut, string StdErr)> RunAsync(
+        string fileName, string arguments, int timeoutMs = 5000) =>
+        Task.Run(() => Run(fileName, arguments, timeoutMs));
+
+    private static string Safe(Task<string> t)
+    {
+        try { return t.IsCompletedSuccessfully ? t.Result.Trim() : ""; }
+        catch { return ""; }
     }
 
     public static string? FindFirstExisting(params string[] paths)

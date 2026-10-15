@@ -82,8 +82,8 @@ internal static class Program
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         _lastOnAc = SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Online;
 
-        // One thermal apply for current power state (single CLI write if needed).
-        SetAutoModes(force: true, applyCharge: true);
+        // Background — never block tray startup on Dell CLI.
+        _ = Task.Run(() => SetAutoModes(force: true, applyCharge: true));
 
         bool firstRun = AppConfig.Get("start_count", 1) <= 1;
         bool needsSetup = !_hal.Capabilities.ThermalControl;
@@ -127,10 +127,10 @@ internal static class Program
 
         menu.Items.Add("Open D-Helper", null, (_, _) => ShowSettings());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quiet", null, (_, _) => _modes?.Apply(ThermalMode.Quiet, out _));
-        menu.Items.Add("Balanced", null, (_, _) => _modes?.Apply(ThermalMode.Optimized, out _));
-        menu.Items.Add("Cool", null, (_, _) => _modes?.Apply(ThermalMode.Cool, out _));
-        menu.Items.Add("Turbo", null, (_, _) => _modes?.Apply(ThermalMode.Ultra, out _));
+        menu.Items.Add("Quiet", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Quiet); });
+        menu.Items.Add("Balanced", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Optimized); });
+        menu.Items.Add("Cool", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Cool); });
+        menu.Items.Add("Turbo", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Ultra); });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) =>
         {
@@ -156,29 +156,12 @@ internal static class Program
     {
         if (e.Mode is not (PowerModes.Resume or PowerModes.StatusChange)) return;
 
-        // Coalesce on UI thread without spawning a Task each event when possible.
-        void Apply()
+        _ = Task.Run(async () =>
         {
+            await Task.Delay(500).ConfigureAwait(false);
             try { SetAutoModes(force: false, applyCharge: false); }
             catch { /* ignore */ }
-        }
-
-        if (_settings is { IsDisposed: false, IsHandleCreated: true })
-        {
-            _settings.BeginInvoke(async () =>
-            {
-                await Task.Delay(600);
-                Apply();
-            });
-        }
-        else
-        {
-            Task.Run(async () =>
-            {
-                await Task.Delay(600);
-                Apply();
-            });
-        }
+        });
     }
 
     private static void SetAutoModes(bool force, bool applyCharge)
@@ -187,19 +170,29 @@ internal static class Program
         if (!force && onAc == _lastOnAc) return;
         _lastOnAc = onAc;
 
+        // Fire-and-forget async firmware writes — UI stays responsive.
         _modes?.ApplyForPowerState(onAc);
         _display?.ApplyForPowerState(onAc);
 
-        // Charge limit is sticky in firmware — apply once per session / --charge, not on every unplug.
         if (applyCharge || !_chargeAppliedThisSession)
         {
-            _battery?.ApplySaved(out _);
+            _ = _battery?.ApplySavedAsync();
             _chargeAppliedThisSession = true;
         }
 
-        _settings?.Toast(onAc ? "AC profile applied" : "Battery profile applied");
-        if (_tray != null && _modes != null)
-            _tray.Text = $"D-Helper — {_modes.Current}";
+        void Ui()
+        {
+            _settings?.Toast(onAc ? "AC profile applied" : "Battery profile applied");
+            if (_tray != null && _modes != null)
+                _tray.Text = $"D-Helper — {_modes.Current}";
+        }
+
+        if (_settings is { IsDisposed: false, IsHandleCreated: true })
+        {
+            try { _settings.BeginInvoke(Ui); }
+            catch { Ui(); }
+        }
+        else Ui();
     }
 
     private static void Cleanup()

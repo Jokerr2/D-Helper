@@ -27,7 +27,8 @@ internal sealed class CompositeLaptopHal : ILaptopHal
             ThermalControl = thermal,
             BatteryControl = thermal,
             FnLockControl = _cctk.Available,
-            PrimaryBackend = _optimizer.Available ? "Dell Optimizer" : _cctk.Available ? "Dell Command Configure" : "None",
+            // CCTK is preferred for writes — typically much faster than do-cli.
+            PrimaryBackend = _cctk.Available ? "Dell Command Configure" : _optimizer.Available ? "Dell Optimizer" : "None",
             OptimizerPath = _optimizer.Path ?? "",
             CctkPath = _cctk.Path ?? "",
             LastError = thermal
@@ -46,27 +47,27 @@ internal sealed class CompositeLaptopHal : ILaptopHal
     public ThermalMode? GetThermalMode()
     {
         if (_cachedThermal != null) return _cachedThermal;
-        _cachedThermal = _optimizer.Available
-            ? _optimizer.GetThermalMode()
-            : _cctk.GetThermalMode();
+        _cachedThermal = _cctk.Available
+            ? _cctk.GetThermalMode()
+            : _optimizer.GetThermalMode();
         return _cachedThermal;
     }
 
     public bool SetThermalMode(ThermalMode mode, out string error)
     {
         error = "";
-        // One backend only — Optimizer preferred, no double process.
-        if (_optimizer.Available)
+        // Prefer CCTK (fast BIOS write). Single backend only — never chain both.
+        if (_cctk.Available)
         {
-            if (_optimizer.SetThermalMode(mode, out error))
+            if (_cctk.SetThermalMode(mode, out error))
             {
                 _cachedThermal = mode;
                 return true;
             }
         }
-        if (_cctk.Available)
+        if (_optimizer.Available)
         {
-            if (_cctk.SetThermalMode(mode, out error))
+            if (_optimizer.SetThermalMode(mode, out error))
             {
                 _cachedThermal = mode;
                 return true;
@@ -96,9 +97,7 @@ internal sealed class CompositeLaptopHal : ILaptopHal
     public bool SetChargeMode(ChargeMode mode, int? customStart, int? customStop, out string error)
     {
         error = "";
-
-        // Prefer CCTK for Custom thresholds; otherwise single Optimizer call.
-        if (mode == ChargeMode.Custom && _cctk.Available)
+        if (_cctk.Available)
         {
             if (_cctk.SetChargeMode(mode, customStart, customStop, out error))
             {
@@ -106,25 +105,14 @@ internal sealed class CompositeLaptopHal : ILaptopHal
                 return true;
             }
         }
-
         if (_optimizer.Available)
         {
             if (_optimizer.SetChargeMode(mode, customStart, customStop, out error))
             {
-                // Custom bounds still need CCTK when Optimizer can't set them.
-                if (mode == ChargeMode.Custom && _cctk.Available)
-                    _cctk.SetChargeMode(mode, customStart, customStop, out _);
                 CacheCharge(mode, customStart, customStop);
                 return true;
             }
         }
-
-        if (_cctk.Available && _cctk.SetChargeMode(mode, customStart, customStop, out error))
-        {
-            CacheCharge(mode, customStart, customStop);
-            return true;
-        }
-
         if (string.IsNullOrEmpty(error))
             error = "No Dell battery backend available";
         _caps.LastError = error;

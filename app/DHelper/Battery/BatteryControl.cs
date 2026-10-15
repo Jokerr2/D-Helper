@@ -5,6 +5,7 @@ namespace DHelper.Battery;
 internal sealed class BatteryControl
 {
     private readonly ILaptopHal _hal;
+    private int _applyGeneration;
 
     public BatteryControl(ILaptopHal hal) => _hal = hal;
 
@@ -14,7 +15,6 @@ internal sealed class BatteryControl
 
     public event Action? Changed;
 
-    /// <summary>Config-only — no CLI reads.</summary>
     public void LoadFromConfig()
     {
         CurrentMode = Enum.TryParse<ChargeMode>(AppConfig.Get("charge_mode", "Custom"), true, out var m)
@@ -42,31 +42,57 @@ internal sealed class BatteryControl
         catch { /* ignore */ }
     }
 
-    public bool Apply(ChargeMode mode, int? start, int? stop, out string error)
+    public Task<(bool Ok, string Error)> ApplyAsync(ChargeMode mode, int? start, int? stop)
     {
         var s = start ?? CustomStart;
         var e = stop ?? CustomStop;
 
         if (mode == CurrentMode && s == CustomStart && e == CustomStop &&
             AppConfig.Get("charge_mode", "") == mode.ToString())
-        {
-            error = "";
-            return true;
-        }
+            return Task.FromResult((true, ""));
 
-        var ok = _hal.SetChargeMode(mode, s, e, out error);
-        if (ok)
+        var prevMode = CurrentMode;
+        var prevStart = CustomStart;
+        var prevStop = CustomStop;
+        var gen = Interlocked.Increment(ref _applyGeneration);
+
+        CurrentMode = mode;
+        CustomStart = s;
+        CustomStop = e;
+        AppConfig.Set("charge_mode", mode.ToString());
+        AppConfig.Set("charge_start", s);
+        AppConfig.Set("charge_stop", e);
+        Changed?.Invoke();
+
+        return Task.Run(() =>
         {
-            CurrentMode = mode;
-            CustomStart = s;
-            CustomStop = e;
-            AppConfig.Set("charge_mode", mode.ToString());
-            AppConfig.Set("charge_start", s);
-            AppConfig.Set("charge_stop", e);
+            var ok = _hal.SetChargeMode(mode, s, e, out var error);
+            if (gen != Volatile.Read(ref _applyGeneration))
+                return (true, "");
+
+            if (ok) return (true, "");
+
+            CurrentMode = prevMode;
+            CustomStart = prevStart;
+            CustomStop = prevStop;
+            AppConfig.Set("charge_mode", prevMode.ToString());
+            AppConfig.Set("charge_start", prevStart);
+            AppConfig.Set("charge_stop", prevStop);
             Changed?.Invoke();
-        }
-        return ok;
+            return (false, error);
+        });
     }
+
+    public bool Apply(ChargeMode mode, int? start, int? stop, out string error)
+    {
+        var task = ApplyAsync(mode, start, stop);
+        task.Wait();
+        error = task.Result.Error;
+        return task.Result.Ok;
+    }
+
+    public Task<(bool Ok, string Error)> ApplySavedAsync() =>
+        ApplyAsync(CurrentMode, CustomStart, CustomStop);
 
     public bool ApplySaved(out string error) =>
         Apply(CurrentMode, CustomStart, CustomStop, out error);

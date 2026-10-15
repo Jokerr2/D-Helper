@@ -5,6 +5,7 @@ namespace DHelper.Mode;
 internal sealed class ModeControl
 {
     private readonly ILaptopHal _hal;
+    private int _applyGeneration;
 
     public ModeControl(ILaptopHal hal) => _hal = hal;
 
@@ -12,7 +13,6 @@ internal sealed class ModeControl
 
     public event Action<ThermalMode, string?>? ModeChanged;
 
-    /// <summary>Config-only load — no CLI. Use at startup for a light idle footprint.</summary>
     public void LoadFromConfig()
     {
         var saved = AppConfig.Get("thermal_mode", "Optimized");
@@ -28,29 +28,52 @@ internal sealed class ModeControl
         else LoadFromConfig();
     }
 
+    /// <summary>
+    /// Instant UI update, firmware write on a background thread.
+    /// Rapid clicks: only the latest request is finalized.
+    /// </summary>
+    public Task<(bool Ok, string Error)> ApplyAsync(ThermalMode mode, bool syncWindowsPower = true)
+    {
+        if (mode == Current && AppConfig.Get("thermal_mode", "") == mode.ToString())
+            return Task.FromResult((true, ""));
+
+        var previous = Current;
+        var gen = Interlocked.Increment(ref _applyGeneration);
+
+        // Optimistic — UI updates immediately.
+        Current = mode;
+        AppConfig.Set("thermal_mode", mode.ToString());
+        ModeChanged?.Invoke(mode, null);
+
+        return Task.Run(() =>
+        {
+            var ok = _hal.SetThermalMode(mode, out var error);
+
+            // Superseded by a newer click — abandon result.
+            if (gen != Volatile.Read(ref _applyGeneration))
+                return (true, "");
+
+            if (ok)
+            {
+                if (syncWindowsPower)
+                    WindowsSensors.SetWindowsPowerOverlay(mode);
+                return (true, "");
+            }
+
+            // Revert optimistic state.
+            Current = previous;
+            AppConfig.Set("thermal_mode", previous.ToString());
+            ModeChanged?.Invoke(previous, error);
+            return (false, error);
+        });
+    }
+
     public bool Apply(ThermalMode mode, out string error, bool syncWindowsPower = true)
     {
-        // Skip redundant firmware writes.
-        if (mode == Current && AppConfig.Get("thermal_mode", "") == mode.ToString())
-        {
-            error = "";
-            return true;
-        }
-
-        var ok = _hal.SetThermalMode(mode, out error);
-        if (ok)
-        {
-            Current = mode;
-            AppConfig.Set("thermal_mode", mode.ToString());
-            if (syncWindowsPower)
-                WindowsSensors.SetWindowsPowerOverlay(mode);
-            ModeChanged?.Invoke(mode, null);
-        }
-        else
-        {
-            ModeChanged?.Invoke(Current, error);
-        }
-        return ok;
+        var task = ApplyAsync(mode, syncWindowsPower);
+        task.Wait();
+        error = task.Result.Error;
+        return task.Result.Ok;
     }
 
     public ThermalMode Cycle()
@@ -62,7 +85,7 @@ internal sealed class ModeControl
             ThermalMode.Cool => ThermalMode.Ultra,
             _ => ThermalMode.Quiet
         };
-        Apply(next, out _);
+        _ = ApplyAsync(next);
         return next;
     }
 
@@ -73,6 +96,6 @@ internal sealed class ModeControl
         var name = AppConfig.Get(key, onAc ? "Optimized" : "Quiet");
         if (!Enum.TryParse<ThermalMode>(name, true, out var mode)) return;
         if (mode == Current) return;
-        Apply(mode, out _);
+        _ = ApplyAsync(mode);
     }
 }
