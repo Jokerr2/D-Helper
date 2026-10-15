@@ -1,0 +1,32 @@
+D-Helper — NOTICE
+=================
+
+This program is a modified version of G-Helper.
+
+Upstream project
+----------------
+G-Helper
+https://github.com/seerge/g-helper
+Copyright (C) seerge and G-Helper contributors
+Licensed under the GNU General Public License v3.0 (GPL-3.0).
+
+Modifications for Dell Pro (this fork)
+--------------------------------------
+Copyright (C) 2026 D-Helper contributors
+
+Changes relative to upstream G-Helper include, among others:
+- Retarget to .NET 8 (net8.0-windows) for wider runtime availability
+- Dell Optimizer (do-cli) and Dell Command | Configure (cctk) hardware bridge
+  when ASUS ATKACPI is unavailable (AsusACPI Dell-bridged mode)
+- Performance mode mapping for Dell thermal profiles (Quiet / Optimized / Cool / Ultra)
+- Battery charge limit and Fn-Lock via CCTK / Optimizer
+- UI gating: hide ASUS-only GPU MUX, Aura, Anime Matrix, Ally, peripherals, fan curves / PPT
+- Updates UI redirected to Dell Support catalog links for Dell Pro 16 PC16250
+- Branding as D-Helper (assembly name DHelper); config under %AppData%\DHelper
+
+License
+-------
+This entire work is distributed under the GNU General Public License version 3.
+See the LICENSE file in the project root.
+
+G-Helper and D-Helper are not affiliated with ASUS or Dell.

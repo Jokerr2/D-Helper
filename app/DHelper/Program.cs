@@ -1,237 +1,587 @@
-using DHelper.Battery;
-using DHelper.Display;
-using DHelper.Hardware;
-using DHelper.Helpers;
-using DHelper.Input;
-using DHelper.Mode;
-using DHelper.Overlay;
-using DHelper.UI;
+using GHelper.Ally;
+using GHelper.Battery;
+using GHelper.Display;
+using GHelper.Gpu;
+using GHelper.Helpers;
+using GHelper.Input;
+using GHelper.Mode;
+using GHelper.Overlay;
+using GHelper.Peripherals;
+using GHelper.USB;
 using Microsoft.Win32;
+using System.Diagnostics;
+using System.Globalization;
+using System.Reflection;
+using System.Text;
+using static NativeMethods;
 
-namespace DHelper;
-
-internal static class Program
+namespace GHelper
 {
-    private static NotifyIcon? _tray;
-    private static SettingsForm? _settings;
-    private static CompositeLaptopHal? _hal;
-    private static ModeControl? _modes;
-    private static BatteryControl? _battery;
-    private static DisplayControl? _display;
-    private static WindowsSensors? _sensors;
-    private static HardwareOverlay? _overlay;
-    private static InputDispatcher? _input;
-    private static Icon? _appIcon;
-    private static bool _lastOnAc;
-    private static bool _balloonShown;
-    private static bool _chargeAppliedThisSession;
 
-    [STAThread]
-    private static void Main(string[] args)
+    static class Program
     {
-        ApplicationConfiguration.Initialize();
-        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        public static NotifyIcon trayIcon;
+        public static AsusACPI acpi;
 
-        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-            MessageBox.Show(e.ExceptionObject.ToString(), "D-Helper error");
+        public static SettingsForm settingsForm;
 
-        if (!ProcessHelper.EnsureSingleInstance())
-            return;
+        public static ModeControl modeControl;
+        public static GPUModeControl gpuControl;
+        public static AllyControl allyControl;
+        public static ClamshellModeControl clamshellControl;
 
-        AppConfig.Load();
-        AppConfig.Set("start_count", AppConfig.Get("start_count", 0) + 1);
+        public static ToastForm toast;
 
-        _appIcon = UiTheme.CreateAppIcon();
-        _hal = new CompositeLaptopHal();
-        _hal.Probe();
-        _sensors = new WindowsSensors();
-        _modes = new ModeControl(_hal);
-        _battery = new BatteryControl(_hal);
-        _display = new DisplayControl();
+        public static HardwareOverlay? hardwareOverlay;
 
-        _modes.LoadFromConfig();
-        _battery.LoadFromConfig();
+        public static IntPtr unRegPowerNotify, unRegPowerNotifyLid, unRegPowerNotifyEnergy, unRegSuspendResume;
+        public static int WM_TASKBARCREATED = 0;
 
-        if (StartupHelper.IsChargeOnlyArg(args))
+        private static long lastAuto;
+        private static readonly object autoLock = new();
+
+        public static InputDispatcher? inputDispatcher;
+
+        // The main entry point for the application
+        public static void Main(string[] args)
         {
-            _battery.ApplySaved(out _);
-            AppConfig.SaveNow();
-            return;
-        }
+            Application.SetHighDpiMode(HighDpiMode.SystemAware);
 
-        _overlay = new HardwareOverlay(_sensors, _modes);
-        _settings = new SettingsForm(_hal, _modes, _battery, _display, _sensors, _overlay, _appIcon);
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Logger.WriteLine("Unhandled: " + e.ExceptionObject);
+            TaskScheduler.UnobservedTaskException += (s, e) => { Logger.WriteLine("Unobserved: " + e.Exception); e.SetObserved(); };
 
-        // G-Helper-like: hotkeys on by default
-        SyncHotkeys();
+            string action = "";
+            if (args.Length > 0) action = args[0];
 
-        _tray = new NotifyIcon
-        {
-            Text = "D-Helper — click to open",
-            Icon = _appIcon,
-            Visible = true,
-            ContextMenuStrip = BuildTrayMenu()
-        };
-        _tray.MouseUp += OnTrayMouseUp;
-
-        SystemEvents.PowerModeChanged += OnPowerModeChanged;
-        _lastOnAc = SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Online;
-
-        _ = Task.Run(() => SetAutoModes(force: true, applyCharge: true));
-
-        bool firstRun = AppConfig.Get("start_count", 1) <= 1;
-        bool needsSetup = !_hal.Capabilities.ThermalControl;
-        if (firstRun || needsSetup)
-        {
-            if (needsSetup)
-                _settings.Toast("Install Dell Optimizer or Command Configure — open Extra");
-            ShowSettings();
-        }
-        else
-        {
-            ShowTrayBalloon();
-        }
-
-        Application.ApplicationExit += (_, _) => Cleanup();
-        Application.Run(new ApplicationContext());
-    }
-
-    internal static void SyncHotkeys()
-    {
-        bool want = AppConfig.Get("hotkeys", true);
-        if (want)
-        {
-            if (_input == null && _modes != null)
+            if (action == "charge")
             {
-                _input = new InputDispatcher(_modes, ShowSettings);
-                _input.Start();
+                Charge();
+                return;
+            }
+
+            string language = AppConfig.GetString("language");
+            try
+            {
+                if (language != null && language.Length > 0)
+                    Thread.CurrentThread.CurrentUICulture = CultureInfo.GetCultureInfo(language);
+                else
+                {
+                    var culture = CultureInfo.CurrentUICulture;
+                    if (culture.ToString() == "kr") culture = CultureInfo.GetCultureInfo("ko");
+                    Thread.CurrentThread.CurrentUICulture = culture;
+                }
+            } catch
+            {
+                Logger.WriteLine("Unknown Language: " + language);
+            }
+
+            Logger.WriteLine("----------------------");
+            Logger.WriteLine("App launched: " + AppConfig.GetModel() + " :" + Assembly.GetExecutingAssembly().GetName().Version.ToString() + CultureInfo.CurrentUICulture + (ProcessHelper.IsUserAdministrator() ? "." : ""));
+
+            ProcessHelper.CheckAlreadyRunning();
+            ProcessHelper.SetPriority();
+
+            CleanupLegacyFiles();
+
+            var startCount = AppConfig.Get("start_count") + 1;
+            AppConfig.Set("start_count", startCount);
+            Logger.WriteLine("Start Count: " + startCount);
+
+            // Probe ACPI / Dell bridge before constructing ModeControl / Settings
+            acpi = new AsusACPI();
+
+            if (!acpi.IsConnected())
+            {
+                if (AppConfig.IsASUS() && !AppConfig.IsDesktop())
+                {
+                    DialogResult dialogResult = MessageBox.Show(Properties.Strings.ACPIError, Properties.Strings.StartupError, MessageBoxButtons.YesNo);
+                    if (dialogResult == DialogResult.Yes)
+                    {
+                        Process.Start(new ProcessStartInfo("https://www.asus.com/support/FAQ/1047338/") { UseShellExecute = true });
+                    }
+
+                    Application.Exit();
+                    return;
+                }
+
+                MessageBox.Show(
+                    "D-Helper needs Dell Optimizer and/or Dell Command | Configure.\n\nInstall them from Dell Support, then run D-Helper as Administrator.",
+                    "D-Helper — Startup Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                Application.Exit();
+                return;
+            }
+
+            if (!acpi.IsDellPlatform)
+            {
+                ProcessHelper.KillSmartDisplayControl();
+                AsusService.StopOnStartup();
+            }
+
+            settingsForm = new SettingsForm();
+            modeControl = new ModeControl();
+            gpuControl = new GPUModeControl(settingsForm);
+            allyControl = new AllyControl(settingsForm);
+            clamshellControl = new ClamshellModeControl();
+            toast = new ToastForm();
+
+            hardwareOverlay = new HardwareOverlay();
+
+            Application.EnableVisualStyles();
+
+            if (!acpi.IsDellPlatform)
+                HardwareControl.RecreateGpuControl();
+
+            trayIcon = new NotifyIcon
+            {
+                Text = acpi.IsDellPlatform ? "D-Helper" : "G-Helper",
+                // Clone — never assign shared Resources icon (VisualiseIcon must be free to dispose tray icons)
+                Icon = GHelper.UI.IconHelper.CloneIcon(Properties.Resources.standard),
+                Visible = true
+            };
+
+            var trayRetry = new System.Windows.Forms.Timer { Interval = 5000 };
+            trayRetry.Tick += (_, _) => { trayRetry.Dispose(); trayIcon.Visible = false; trayIcon.Visible = true; };
+            trayRetry.Start();
+
+            WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
+            Logger.WriteLine($"Tray Icon: {trayIcon.Visible} | {WM_TASKBARCREATED}");
+
+            if (acpi.IsDellPlatform)
+                Modes.InitDellCool();
+            else
+                Modes.InitFullSpeed();
+
+            settingsForm.SetContextMenu();
+            trayIcon.MouseClick += TrayIcon_MouseClick;
+            trayIcon.MouseMove += TrayIcon_MouseMove;
+
+
+            inputDispatcher = new InputDispatcher();
+
+            if (acpi.IsDellPlatform)
+            {
+                settingsForm.InitDellPlatform();
+            }
+            else
+            {
+                settingsForm.InitAura();
+                settingsForm.InitMatrix();
+            }
+
+            ScreenControl.InitScreen();
+
+            SetAutoModes(init: true);
+
+            powerSettleTimer.Elapsed += OnPowerSettled;
+
+            // Subscribing for system power change events
+            SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
+            SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
+
+            SystemEvents.SessionSwitch += SystemEvents_SessionSwitch;
+            SystemEvents.SessionEnding += SystemEvents_SessionEnding;
+
+            clamshellControl.RegisterDisplayEvents();
+            clamshellControl.ToggleLidAction();
+
+            // Subscribing for monitor power on events
+            unRegPowerNotify = NativeMethods.RegisterPowerSettingNotification(settingsForm.Handle, PowerSettingGuid.ConsoleDisplayState, NativeMethods.DEVICE_NOTIFY_WINDOW_HANDLE);
+            unRegPowerNotifyLid = NativeMethods.RegisterPowerSettingNotification(settingsForm.Handle, PowerSettingGuid.LIDSWITCH_STATE_CHANGE, NativeMethods.DEVICE_NOTIFY_WINDOW_HANDLE);
+            unRegPowerNotifyEnergy = NativeMethods.RegisterPowerSettingNotification(settingsForm.Handle, PowerSettingGuid.EnergySaverStatus, NativeMethods.DEVICE_NOTIFY_WINDOW_HANDLE);
+            unRegSuspendResume = NativeMethods.RegisterSuspendResumeNotification(settingsForm.Handle, NativeMethods.DEVICE_NOTIFY_WINDOW_HANDLE);
+
+
+            if (!acpi.IsDellPlatform)
+            {
+                Task task = Task.Run(() =>
+                {
+                    PeripheralsProvider.DetectAllAsusMice();
+                    PeripheralsProvider.DetectAllAsusKeyboards();
+                    PeripheralsProvider.DetectAllAsusHeadsets();
+                });
+                PeripheralsProvider.RegisterForDeviceEvents();
+            }
+
+            if (Environment.CurrentDirectory.Trim('\\') == Application.StartupPath.Trim('\\') || action.Length > 0)
+            {
+                SettingsToggle(false);
+            }
+
+            switch (action)
+            {
+                case "cpu":
+                    Startup.ReScheduleAdmin();
+                    settingsForm.FansToggle();
+                    break;
+                case "gpu":
+                    Startup.ReScheduleAdmin();
+                    settingsForm.FansToggle(1);
+                    break;
+                case "services":
+                    settingsForm.extraForm = new Extra();
+                    settingsForm.extraForm.Show();
+                    settingsForm.extraForm.ServiesToggle();
+                    break;
+                case "uv":
+                    Startup.ReScheduleAdmin();
+                    settingsForm.FansToggle(2);
+                    modeControl.SetRyzen();
+                    break;
+                case "colors":
+                    Task.Run(async () =>
+                    {
+                        await ColorProfileHelper.InstallProfile();
+                        settingsForm.Invoke(delegate
+                        {
+                            settingsForm.InitVisual();
+                        });
+                    });
+                    break;
+                default:
+                    Task.Run(Startup.StartupCheck);
+                    break;
+            }
+
+            Task.Run(() =>
+            {
+                settingsForm.VisualiseArmoury(AsusService.IsArmouryRunning());
+            });
+
+            if (AppConfig.IsOverlay())
+                hardwareOverlay?.StartOverlay();
+
+            Application.ApplicationExit += OnExit;
+            Application.Run();
+        }
+
+
+        private static void SystemEvents_SessionEnding(object sender, SessionEndingEventArgs e)
+        {
+            gpuControl.StandardModeFix();
+            modeControl.ShutdownReset();
+            BatteryControl.AutoBattery();
+            InputDispatcher.ShutdownStatusLed();
+            XGM.NotifyShutdown();
+        }
+
+        private static void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
+        {
+            if (e.Reason == SessionSwitchReason.SessionLogon || e.Reason == SessionSwitchReason.SessionUnlock || e.Reason == SessionSwitchReason.ConsoleConnect)
+            {
+                Logger.WriteLine("Session:" + e.Reason.ToString());
+                ProcessHelper.KillSmartDisplayControl();
+                bool wasLocked = Aura.sessionLock;
+                Aura.sessionLock = false;
+                if (!AppConfig.Is("skip_aura")) Aura.ApplyAura();
+                Task.Delay(2000).ContinueWith(_ =>
+                {
+                    ScreenControl.AutoScreen();
+                    if (!wasLocked) return;
+                    if (Math.Abs(DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastAuto) < 10000) return;
+                    modeControl.AutoCPUTemp();
+                });
+            }
+            if (e.Reason == SessionSwitchReason.SessionLock)
+            {
+                Logger.WriteLine("Session:" + e.Reason.ToString());
+                Aura.sessionLock = true;
             }
         }
-        else
+
+        static void SystemEvents_UserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
         {
-            _input?.Dispose();
-            _input = null;
+
+            switch (e.Category)
+            {
+                case UserPreferenceCategory.General:
+                    if (!settingsForm.InitTheme()) return;
+
+                    Debug.WriteLine("Theme Changed");
+                    settingsForm.InitContextMenuTheme();
+                    settingsForm.VisualiseIcon(true);
+                    settingsForm.VisualiseFnLock();
+                    settingsForm.VisualiseBatteryFull();
+
+                    if (settingsForm.fansForm is not null && settingsForm.fansForm.Text != "")
+                        settingsForm.fansForm.InitTheme();
+
+                    if (settingsForm.extraForm is not null && settingsForm.extraForm.Text != "")
+                        settingsForm.extraForm.InitTheme();
+
+                    if (settingsForm.updatesForm is not null && settingsForm.updatesForm.Text != "")
+                        settingsForm.updatesForm.InitTheme();
+
+                    if (settingsForm.matrixForm is not null && settingsForm.matrixForm.Text != "")
+                        settingsForm.matrixForm.InitTheme();
+
+                    if (settingsForm.handheldForm is not null && settingsForm.handheldForm.Text != "")
+                        settingsForm.handheldForm.InitTheme();
+
+                    break;
+            }
         }
-    }
 
-    private static void OnTrayMouseUp(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left)
-            ShowSettings();
-    }
 
-    private static void ShowTrayBalloon()
-    {
-        if (_balloonShown || _tray == null) return;
-        _balloonShown = true;
-        _tray.BalloonTipTitle = "D-Helper";
-        _tray.BalloonTipText = "Running in the system tray. Click the icon to open.";
-        _tray.BalloonTipIcon = ToolTipIcon.Info;
-        _tray.ShowBalloonTip(2000);
-    }
 
-    private static ContextMenuStrip BuildTrayMenu()
-    {
-        var menu = new ContextMenuStrip();
-        menu.BackColor = UiTheme.Surface;
-        menu.ForeColor = UiTheme.Text;
-        menu.Renderer = new ToolStripProfessionalRenderer(new DarkColorTable());
-
-        menu.Items.Add("Open D-Helper", null, (_, _) => ShowSettings());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Silent", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Quiet); });
-        menu.Items.Add("Balanced", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Optimized); });
-        menu.Items.Add("Cool", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Cool); });
-        menu.Items.Add("Turbo", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Ultra); });
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) =>
+        public static bool SetAutoModes(bool powerChanged = false, bool init = false, bool wakeup = false)
         {
-            Cleanup();
+            int skipDelay = wakeup ? 10000 : 3000;
+
+            if (init) gpuControl.CaptureNvBootState();
+
+            lock (autoLock)
+            {
+                if (Math.Abs(DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastAuto) < skipDelay) return false;
+                lastAuto = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+            }
+
+            currentSource = ReadPowerSource();
+            Logger.WriteLine("AutoSetting for " + SystemInformation.PowerStatus.PowerLineStatus.ToString());
+
+            // Dell fast-path: no ASUS Aura/GPU/Matrix/WMI — keep UI responsive
+            if (acpi.IsDellPlatform)
+            {
+                BatteryControl.AutoBattery(init);
+                modeControl.AutoPerformance(powerChanged);
+                try { ScreenControl.AutoScreen(); } catch (Exception ex) { Logger.WriteLine("AutoScreen: " + ex.Message); }
+                return true;
+            }
+
+            BatteryControl.AutoBattery(init);
+            if (init) InputDispatcher.InitScreenpad();
+            DynamicLightingHelper.Init();
+            ScreenControl.InitOptimalBrightness();
+
+            inputDispatcher.Init();
+            //HardwareControl.ReadSensors(true);
+
+            modeControl.AutoPerformance(powerChanged);
+
+            if (powerChanged) settingsForm.matrixControl.SetMatrix(true);
+            else settingsForm.matrixControl.SetDevice(true);
+            InputDispatcher.InitStatusLed();
+            if (init) NumberPad.Init();
+            XGM.Init();
+
+            if (AppConfig.IsAlly())
+            {
+                allyControl.Init();
+            }
+            else
+            {
+                InputDispatcher.AutoKeyboard();
+            }
+
+            bool switched = gpuControl.AutoGPUMode(delay: 1000);
+            if (!switched)
+            {
+                gpuControl.InitGPUMode();
+                if (init) gpuControl.CheckStandardHalfState();
+                ScreenControl.AutoScreen();
+            }
+
+            ScreenControl.InitMiniled();
+            VisualControl.InitBrightness();
+
+            return true;
+        }
+
+        public enum PowerSource { Battery, Barrel, USBC }
+
+        public static PowerSource currentSource = PowerSource.Battery;
+        private static PowerLineStatus lastLineStatus = SystemInformation.PowerStatus.PowerLineStatus;
+        private static readonly System.Timers.Timer powerSettleTimer = new() { AutoReset = false };
+
+        public static PowerSource ReadPowerSource()
+        {
+            if (SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online)
+                return PowerSource.Battery;
+
+            int chargerMode = acpi?.DeviceGet(AsusACPI.ChargerMode) ?? 0;
+            if (chargerMode > 0 && (chargerMode & AsusACPI.ChargerBarrel) == 0)
+                return PowerSource.USBC;
+
+            return PowerSource.Barrel;
+        }
+
+        public static bool usbcProfile = AppConfig.Is("usbc_profile");
+
+        public static int PerformanceKey() =>
+            usbcProfile ? (int)ReadPowerSource() : (int)SystemInformation.PowerStatus.PowerLineStatus;
+
+        public static void SchedulePowerCheck()
+        {
+            if (AppConfig.Is("disable_power_event")) return;
+            powerSettleTimer.Interval = Math.Max(AppConfig.Get("charger_delay"), 2000);
+            powerSettleTimer.Stop();
+            powerSettleTimer.Start();
+        }
+
+        private static void OnPowerSettled(object? sender, System.Timers.ElapsedEventArgs e)
+        {
+            PowerSource source = ReadPowerSource();
+            if (source == currentSource) return;
+
+            Logger.WriteLine($"Power source: {currentSource} -> {source}");
+            currentSource = source;
+            SetAutoModes(powerChanged: true);
+        }
+
+        public static void OnChargerEvent() => SchedulePowerCheck();
+
+        private static void SystemEvents_PowerModeChanged(object sender, PowerModeChangedEventArgs e)
+        {
+            if (e.Mode == PowerModes.Suspend)
+            {
+                Logger.WriteLine("Power Mode Changed:" + e.Mode.ToString());
+                gpuControl.StandardModeFix();
+                modeControl.ShutdownReset();
+                InputDispatcher.ShutdownStatusLed();
+                XGM.NotifyShutdown();
+                return;
+            }
+
+            PowerLineStatus status = SystemInformation.PowerStatus.PowerLineStatus;
+            if (status != lastLineStatus)
+            {
+                lastLineStatus = status;
+                Logger.WriteLine($"Power Mode {e.Mode}: {status}");
+            }
+
+            SchedulePowerCheck();
+        }
+
+        public static void SettingsToggle(bool checkForFocus = true, bool trayClick = false)
+        {
+            if (settingsForm.Visible)
+            {
+                // If helper window is not on top, this just focuses on the app again
+                // Pressing the ghelper button again will hide the app
+                if (checkForFocus && !settingsForm.HasAnyFocus(trayClick) && !AppConfig.Is("topmost"))
+                {
+                    settingsForm.ShowAll();
+                }
+                else
+                {
+                    settingsForm.HideAll();
+                }
+            }
+            else
+            {
+                var screen = Screen.PrimaryScreen;
+                if (screen is null) screen = Screen.FromControl(settingsForm);
+
+                settingsForm.WindowState = FormWindowState.Normal;
+
+                settingsForm.Location = screen.WorkingArea.Location;
+                settingsForm.Left = screen.WorkingArea.Right - 10 - settingsForm.Width;
+                settingsForm.Top = screen.WorkingArea.Top > screen.Bounds.Top ? screen.WorkingArea.Top + 10 : screen.WorkingArea.Bottom - 10 - settingsForm.Height;
+
+                settingsForm.Show();
+                settingsForm.ShowAll();
+
+                settingsForm.Left = screen.WorkingArea.Right - 10 - settingsForm.Width;
+
+                if (AppConfig.IsAlly())
+                    settingsForm.Top = Math.Max(10, screen.Bounds.Height - 110 - settingsForm.Height);
+                else
+                    settingsForm.Top = screen.WorkingArea.Top > screen.Bounds.Top ? screen.WorkingArea.Top + 10 : screen.WorkingArea.Bottom - 10 - settingsForm.Height;
+
+                settingsForm.VisualiseGPUMode();
+            }
+        }
+
+        static void TrayIcon_MouseClick(object? sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+                SettingsToggle(trayClick: true);
+
+        }
+
+        static void TrayIcon_MouseMove(object? sender, MouseEventArgs e)
+        {
+            settingsForm.RefreshSensors();
+        }
+
+        static void OnExit(object sender, EventArgs e)
+        {
+            if (trayIcon is not null)
+            {
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+            }
+
+            PeripheralsProvider.UnregisterForDeviceEvents();
+            clamshellControl.UnregisterDisplayEvents();
+            NativeMethods.UnregisterPowerSettingNotification(unRegPowerNotify);
+            NativeMethods.UnregisterPowerSettingNotification(unRegPowerNotifyLid);
+            NativeMethods.UnregisterPowerSettingNotification(unRegPowerNotifyEnergy);
+            NativeMethods.UnregisterSuspendResumeNotification(unRegSuspendResume);
+        }
+
+        static void Charge()
+        {
+            if (AppConfig.IsZ13())
+            {
+                AsusHid.Write([
+                    Encoding.ASCII.GetBytes("]ASUS Tech.Inc."),
+                    [AsusHid.AURA_ID, 0xC0, 0x03, 0x01]
+                ], "Init");
+            }
+
+            try
+            {
+                int limit = AppConfig.Get("charge_limit");
+                acpi = new AsusACPI();
+                if (limit > 0 && limit < 100)
+                {
+                    Logger.WriteLine($"------- Startup Battery Limit {limit} -------");
+                    if (acpi.IsConnected()) acpi.DeviceSet(AsusACPI.BatteryLimit, limit, "Limit");
+                    else AsusACPI.DeviceSetWmi(AsusACPI.BatteryLimit, limit);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLine("Startup Battery Limit Error: " + ex.Message);
+            }
+
+            try
+            {
+                if (!acpi.IsDellPlatform)
+                    InputDispatcher.StartupBacklight();
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLine($"Startup Backlight: {ex.Message}");
+            }
+
             Application.Exit();
-        });
-        return menu;
-    }
-
-    private static void ShowSettings()
-    {
-        if (_settings == null) return;
-        _settings.PositionNearTray();
-        _settings.Show();
-        _settings.WindowState = FormWindowState.Normal;
-        _settings.BringToFront();
-        _settings.Activate();
-        _settings.RefreshFromCache();
-    }
-
-    private static void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
-    {
-        if (e.Mode is not (PowerModes.Resume or PowerModes.StatusChange)) return;
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(500).ConfigureAwait(false);
-            try { SetAutoModes(force: false, applyCharge: false); }
-            catch { /* ignore */ }
-        });
-    }
-
-    private static void SetAutoModes(bool force, bool applyCharge)
-    {
-        var onAc = SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Online;
-        if (!force && onAc == _lastOnAc) return;
-        _lastOnAc = onAc;
-
-        _modes?.ApplyForPowerState(onAc);
-        _display?.ApplyForPowerState(onAc);
-
-        if (applyCharge || !_chargeAppliedThisSession)
-        {
-            _ = _battery?.ApplySavedAsync();
-            _chargeAppliedThisSession = true;
         }
 
-        void Ui()
+        static void CleanupLegacyFiles()
         {
-            _settings?.Toast(onAc ? "AC profile applied" : "Battery profile applied");
-            if (_tray != null && _modes != null)
-                _tray.Text = $"D-Helper — {_modes.Current}";
+            string appDir = Path.GetDirectoryName(Application.ExecutablePath) ?? "";
+            string[] legacyFiles = ["WinRing0x64.sys", "WinRing0x64.dll"];
+
+            foreach (string fileName in legacyFiles)
+            {
+                string filePath = Path.Combine(appDir, fileName);
+                if (File.Exists(filePath))
+                {
+                    try
+                    {
+                        File.Delete(filePath);
+                        Logger.WriteLine($"Deleted legacy file: {fileName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.WriteLine($"Failed to delete legacy file {fileName}: {ex.Message}");
+                    }
+                }
+            }
         }
 
-        if (_settings is { IsDisposed: false, IsHandleCreated: true })
-        {
-            try { _settings.BeginInvoke(Ui); }
-            catch { Ui(); }
-        }
-        else Ui();
-    }
-
-    private static void Cleanup()
-    {
-        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
-        _input?.Dispose();
-        _overlay?.Dispose();
-        _sensors?.Dispose();
-        _hal?.Dispose();
-        if (_tray != null)
-        {
-            _tray.Visible = false;
-            _tray.Dispose();
-        }
-        _appIcon?.Dispose();
-        AppConfig.SaveNow();
-    }
-
-    private sealed class DarkColorTable : ProfessionalColorTable
-    {
-        public override Color MenuItemSelected => UiTheme.AccentSoft;
-        public override Color MenuItemSelectedGradientBegin => UiTheme.AccentSoft;
-        public override Color MenuItemSelectedGradientEnd => UiTheme.AccentSoft;
-        public override Color MenuItemBorder => UiTheme.Border;
-        public override Color ToolStripDropDownBackground => UiTheme.Surface;
-        public override Color ImageMarginGradientBegin => UiTheme.Surface;
-        public override Color ImageMarginGradientMiddle => UiTheme.Surface;
-        public override Color ImageMarginGradientEnd => UiTheme.Surface;
-        public override Color SeparatorDark => UiTheme.Border;
-        public override Color SeparatorLight => UiTheme.Border;
     }
 }

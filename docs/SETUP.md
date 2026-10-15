@@ -11,17 +11,21 @@
 ## Build
 
 ```powershell
+Get-Process DHelper -ErrorAction SilentlyContinue | Stop-Process -Force
 cd app
-dotnet build -c Release
-dotnet publish -c Release -r win-x64 --self-contained false /p:PublishSingleFile=true
+dotnet publish DHelper\DHelper.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o ..\publish
 ```
 
-Output: `app\bin\Release\net8.0-windows\win-x64\publish\DHelper.exe`
+Output: `publish\DHelper.exe`
 
 ## Run
 
-Right-click **Run as administrator** (required for thermal/battery writes), or accept the UAC prompt when launched.
+Accept the UAC prompt (**Administrator** required for thermal/battery writes).
 
 ## First-run tip
 
 Close or ignore Dell Optimizer’s own UI while using D-Helper so the two apps do not fight over thermal mode.
+
+## Source / license
+
+This is a GPL-3.0 modified version of [G-Helper](https://github.com/seerge/g-helper). See root `LICENSE` and `NOTICE`.

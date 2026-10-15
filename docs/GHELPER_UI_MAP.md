@@ -1,41 +1,38 @@
-# G-Helper UI map (clean-room reference)
+# G-Helper UI map (GPL fork)
 
-Read-only reference: `_ref/g-helper/` (gitignored shallow clone of [seerge/g-helper](https://github.com/seerge/g-helper)).  
-**Do not copy** `.cs` / designer / assets into D-Helper — MIT clean-room reimplementation only.
+Source: forked from [seerge/g-helper](https://github.com/seerge/g-helper) (GPL-3.0); app code lives in `app/DHelper`.  
+Runtime UI is the upstream WinForms layout with Dell capability gates.
 
-## Main window (`SettingsForm`)
+## Main window (`Settings`)
 
-| Section | G-Helper controls | D-Helper PC16250 |
+| Section | G-Helper | D-Helper PC16250 |
 |---|---|---|
-| Header / sensors | Model + CPU/GPU/BAT/fan labels | Model + CPU / BAT / AC·DC / Hz strip |
-| Performance | Silent · Balanced · Turbo (+ Cool) | Quiet · Balanced · Cool · Turbo (CCTK/Optimizer) |
-| Fans + Power link | Opens `Fans` form | Opens Fans + Power form |
-| GPU mode | Eco · Standard · Ultimate · Optimized · XGM | Same row, **disabled** (iGPU-only) |
-| Screen | 60 / 120 / Auto / MiniLED / FHD | Auto refresh via Extra; visual pills **disabled** |
-| Keyboard / Extra | Opens `Extra`; Fn-Lock; Overlay; backlight | Extra form; Fn-Lock (CCTK); Overlay; lighting **disabled** |
-| Battery | Slider + % + full button | Charge mode + stop-% slider (CCTK `PrimaryBattChargeCfg`) |
-| Visual / Gamma | Combo + slider | **Disabled** |
-| Anime Matrix / RGB / peripherals | Combos + buttons | **Disabled** with tooltip |
-| Footer | Startup · Updates · Quit | Startup · Updates · Quit |
+| Header / sensors | Model + CPU/GPU/BAT/fan | Same chrome; GPU sensors may be empty (iGPU) |
+| Performance | Silent · Balanced · Turbo (+ custom) | Same + **Cool** custom mode via Dell thermal |
+| Fans + Power link | Opens `Fans` | Opens Fans; curves/PPT disabled |
+| GPU mode | Eco · Standard · Ultimate · Optimized · XGM | **Hidden** |
+| Screen | Auto / Hz / MiniLED / FHD | Refresh Auto/min/max kept; MiniLED/OD gated off |
+| Keyboard / Extra | Aura + Extra | Keyboard/Aura **hidden**; Extra opens (Dell extras) |
+| Battery | Slider + full | Charge limit via CCTK bridge |
+| Visual / Gamma | Combo + slider | **Hidden** |
+| Anime Matrix / peripherals | Combos + buttons | **Hidden** |
+| Footer | Startup · Updates · Quit | Same |
 
 ## Secondary forms
 
 | Form | Role | D-Helper |
 |---|---|---|
-| `Fans.cs` | Fan curves, PPT, Windows power | Windows power + thermal notes; curve/PPT **disabled** |
-| `Extra.cs` | Hotkeys, startup, AC/DC, Fn-Lock | Same working Dell extras + backend status |
-| `Updates.cs` | BIOS/driver scrape (ASUS) | Dell Support catalog links for PC16250 |
+| `Fans.cs` | Fan curves, PPT, Windows power | Windows power kept; curve/PPT/UV **disabled** |
+| `Extra.cs` | Hotkeys, backlight, services | Backlight/ASUS services **hidden**; Dell backend status shown |
+| `Updates.cs` | ASUS BIOS/driver scrape | Dell Support catalog links |
 
-## Tray / input (`Program.cs`)
+## Tray / input
 
-- Left-click tray → open main window near tray
-- Right-click → mode shortcuts + Exit
-- Balloon on first quiet start
-- Hotkeys default **on** (Ctrl+Shift+F5 cycle mode, Ctrl+Shift+F12 open)
+- Left-click tray → open main window
+- Right-click → performance modes (no GPU submenu on Dell) + Overlay + Quit
+- Hotkeys via G-Helper `InputDispatcher`
+- Balloon / toast via upstream toast form
 
-## Visual language (recreated)
+## Dell bridge
 
-- Dark compact tray window, section panels stacked top→bottom
-- Mode pills with accent border when active
-- Secondary nav buttons (Fans + Power, Extra, Updates)
-- Disabled controls stay visible; tooltip: “Not available on Dell Pro”
+`Program.acpi` (`AsusACPI`) connects in **Dell-bridged mode** when ATKACPI is absent and Optimizer/CCTK probe succeeds. Bridged IDs: performance mode, battery limit, Fn-Lock.

@@ -1,0 +1,39 @@
+﻿=== elevated probe 2026-10-15T15:22:46.5188486+05:00 ===
+IsAdmin=System.Security.Principal.WindowsPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+===== --KeyboardIllumination =====
+KeyboardIllumination=Dim
+
+===== --UsbPowerShare =====
+UsbPowerShare=Disabled
+
+===== --WakeOnLan =====
+WakeOnLan=Disabled
+
+===== --LidSwitch =====
+LidSwitch=Enabled
+
+===== --Camera =====
+Camera=Enabled
+
+===== --AutoOn =====
+AutoOn=Disabled
+
+===== --BlockSleep =====
+BlockSleep=Disabled
+
+===== --PrimaryBattChargeCfg =====
+PrimaryBattChargeCfg=PrimAcUse
+
+===== --FnLock =====
+FnLock=Enabled
+
+===== --ThermalManagement =====
+ThermalManagement=Quiet
+
+===== --help KeyboardIllumination =====
+
+KeyboardIllumination:  This feature allows you to set the keyboard illumination to Disabled, Auto, Dim, or Bright. When Disabled, the illumination remains off. On Auto, the illumination is based on the ambient light level of your system. This setting is not available for systems without ambient light sensor. On Dim, the illumination is at 50% and on Bright, it is at 100. Auto and Dim settings are not supported on all systems with keyboard illumination.
+
+Arguments: Disabled+ | Dim+ | Bright+ | Auto
+
+Note : + Indicates the arguments supported in the current machine.

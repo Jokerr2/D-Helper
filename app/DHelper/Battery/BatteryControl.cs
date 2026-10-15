@@ -1,99 +1,129 @@
-using DHelper.Hardware;
+﻿using GHelper.Helpers;
+using Microsoft.Win32;
+using System.Diagnostics;
 
-namespace DHelper.Battery;
-
-internal sealed class BatteryControl
+namespace GHelper.Battery
 {
-    private readonly ILaptopHal _hal;
-    private int _applyGeneration;
-
-    public BatteryControl(ILaptopHal hal) => _hal = hal;
-
-    public ChargeMode CurrentMode { get; private set; } = ChargeMode.Custom;
-    public int CustomStart { get; private set; } = 50;
-    public int CustomStop { get; private set; } = 80;
-
-    public event Action? Changed;
-
-    public void LoadFromConfig()
+    public static class BatteryControl
     {
-        CurrentMode = Enum.TryParse<ChargeMode>(AppConfig.Get("charge_mode", "Custom"), true, out var m)
-            ? m : ChargeMode.Custom;
-        CustomStart = AppConfig.Get("charge_start", 50);
-        CustomStop = AppConfig.Get("charge_stop", 80);
-        if (_hal is CompositeLaptopHal composite)
-            composite.SeedCache(null, CurrentMode, CustomStart, CustomStop);
-    }
 
-    public void RefreshFromDevice()
-    {
-        LoadFromConfig();
-        try
+        static bool _chargeFull = AppConfig.Is("charge_full");
+        static int _applyGeneration;
+
+        public static bool chargeFull
         {
-            var device = _hal.GetChargeMode();
-            if (device != null) CurrentMode = device.Value;
-            if (_hal is CompositeLaptopHal composite)
+            get
             {
-                var (s, e) = composite.GetCustomChargeBounds();
-                if (s != null) CustomStart = s.Value;
-                if (e != null) CustomStop = e.Value;
+                return _chargeFull;
+            }
+            set
+            {
+                AppConfig.Set("charge_full", value ? 1 : 0);
+                _chargeFull = value;
             }
         }
-        catch { /* ignore */ }
-    }
 
-    public Task<(bool Ok, string Error)> ApplyAsync(ChargeMode mode, int? start, int? stop)
-    {
-        var s = start ?? CustomStart;
-        var e = stop ?? CustomStop;
-
-        if (mode == CurrentMode && s == CustomStart && e == CustomStop &&
-            AppConfig.Get("charge_mode", "") == mode.ToString())
-            return Task.FromResult((true, ""));
-
-        var prevMode = CurrentMode;
-        var prevStart = CustomStart;
-        var prevStop = CustomStop;
-        var gen = Interlocked.Increment(ref _applyGeneration);
-
-        CurrentMode = mode;
-        CustomStart = s;
-        CustomStop = e;
-        AppConfig.Set("charge_mode", mode.ToString());
-        AppConfig.Set("charge_start", s);
-        AppConfig.Set("charge_stop", e);
-        Changed?.Invoke();
-
-        return Task.Run(() =>
+        public static void ToggleBatteryLimitFull()
         {
-            var ok = _hal.SetChargeMode(mode, s, e, out var error);
-            if (gen != Volatile.Read(ref _applyGeneration))
-                return (true, "");
+            if (chargeFull) SetBatteryChargeLimit();
+            else SetBatteryLimitFull();
+        }
 
-            if (ok) return (true, "");
+        public static void SetBatteryLimitFull()
+        {
+            chargeFull = true;
+            ApplyLimitAsync(100, full: true);
+            Program.settingsForm.VisualiseBatteryFull();
+        }
 
-            CurrentMode = prevMode;
-            CustomStart = prevStart;
-            CustomStop = prevStop;
-            AppConfig.Set("charge_mode", prevMode.ToString());
-            AppConfig.Set("charge_start", prevStart);
-            AppConfig.Set("charge_stop", prevStop);
-            Changed?.Invoke();
-            return (false, error);
-        });
+        public static void UnSetBatteryLimitFull()
+        {
+            chargeFull = false;
+            Logger.WriteLine("Battery fully charged");
+            Program.settingsForm.Invoke(Program.settingsForm.VisualiseBatteryFull);
+        }
+
+        public static void AutoBattery(bool init = false)
+        {
+            if (chargeFull && !init) SetBatteryLimitFull();
+            else SetBatteryChargeLimit();
+        }
+
+        public static void SetAsusChargeLimit(int value)
+        {
+            if (Program.acpi.IsDellPlatform) return;
+            if (!ProcessHelper.IsUserAdministrator()) return;
+            const string keyPath = @"SOFTWARE\ASUS\ASUS System Control Interface\AsusOptimization\ASUS Keyboard Hotkeys";
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(keyPath, writable: true);
+                key?.SetValue("ChargingRate", value, RegistryValueKind.DWord);
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLine($"Failed to set ChargingRate: {ex.Message}");
+            }
+        }
+
+        public static void SetBatteryChargeLimit(int setLimit = -1)
+        {
+            int limit = setLimit;
+            if (limit < 0) limit = AppConfig.Get("charge_limit");
+            if (limit < 40 || limit > 100) return;
+
+            if (!Program.acpi.IsDellPlatform && AppConfig.IsChargeLimit6080())
+            {
+                if (limit > 85) limit = 100;
+                else if (limit >= 80) limit = 80;
+                else if (limit < 60) limit = 60;
+            }
+
+            if (setLimit > 0) SetAsusChargeLimit(limit);
+
+            AppConfig.Set("charge_limit", limit);
+            chargeFull = false;
+
+            // Optimistic UI first so the slider/label never desync while CLI runs
+            try { Program.settingsForm?.VisualiseBattery(limit); } catch { /* form not ready */ }
+
+            ApplyLimitAsync(limit, full: false);
+        }
+
+        static void ApplyLimitAsync(int limit, bool full)
+        {
+            int gen = Interlocked.Increment(ref _applyGeneration);
+            if (Program.acpi.IsDellPlatform)
+            {
+                Task.Run(() =>
+                {
+                    if (gen != _applyGeneration) return;
+                    Program.acpi.DeviceSet(AsusACPI.BatteryLimit, limit, full ? "BatteryFull" : "BatteryLimit");
+                });
+                return;
+            }
+
+            Program.acpi.DeviceSet(AsusACPI.BatteryLimit, limit, full ? "BatteryFull" : "BatteryLimit");
+        }
+
+        public static void BatteryReport()
+        {
+            var reportDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+            try
+            {
+                var cmd = new Process();
+                cmd.StartInfo.WorkingDirectory = reportDir;
+                cmd.StartInfo.UseShellExecute = false;
+                cmd.StartInfo.CreateNoWindow = true;
+                cmd.StartInfo.FileName = "powershell";
+                cmd.StartInfo.Arguments = "powercfg /batteryreport; explorer battery-report.html";
+                cmd.Start();
+            }
+            catch (Exception ex)
+            {
+                Logger.WriteLine(ex.Message);
+            }
+        }
+
     }
-
-    public bool Apply(ChargeMode mode, int? start, int? stop, out string error)
-    {
-        var task = ApplyAsync(mode, start, stop);
-        task.Wait();
-        error = task.Result.Error;
-        return task.Result.Ok;
-    }
-
-    public Task<(bool Ok, string Error)> ApplySavedAsync() =>
-        ApplyAsync(CurrentMode, CustomStart, CustomStop);
-
-    public bool ApplySaved(out string error) =>
-        Apply(CurrentMode, CustomStart, CustomStop, out error);
 }
