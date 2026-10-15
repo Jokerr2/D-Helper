@@ -1,17 +1,25 @@
 # D-Helper
 
-Lightweight tray app for **Dell Pro 16 PC16250** (and similar business Dells) — a clean-room, G-Helper-inspired remote control for Dell Optimizer / Command Configure thermal modes and battery charge limits.
+Lightweight tray app for **Dell Pro 16 PC16250** — a clean-room, G-Helper-*lookalike* remote control for Dell Optimizer / Command Configure.
 
-> Not affiliated with ASUS G-Helper or Dell. Does not copy G-Helper source (GPL-3.0). UX/architecture inspired only.
+> Not affiliated with ASUS G-Helper or Dell. Does **not** copy G-Helper source (GPL-3.0). Layout/behavior matched by reimplementation; reference clone stays in `_ref/` (gitignored).
 
-## Features
+## Feature matrix (PC16250)
 
-- Quiet / Balanced / Cool / Turbo thermal modes
-- Battery charge modes + custom charge window (e.g. 50–80%)
-- Auto thermal + refresh rate on AC / battery
-- System tray app (left-click icon to open — no shortcut required)
-- Optional metrics overlay and Start with Windows
-- `--charge` CLI for boot apply
+| Area | Status |
+|---|---|
+| Silent / Balanced / Cool / Turbo | Working (CCTK / Optimizer thermal) |
+| Battery charge limit | Working (CCTK `PrimaryBattChargeCfg` only) |
+| Auto mode + refresh on AC/DC | Working |
+| Tray left-click + toasts | Working |
+| Hotkeys (mode cycle, open) | Working (on by default) |
+| Sensors + metrics overlay | Working |
+| Fn-Lock | Working when CCTK exposes it |
+| Fans + Power window | Partial — Windows power + thermal; fan curves / PPT **disabled** |
+| GPU Eco / Ultimate / Optimized | UI present, **disabled** (iGPU-only) |
+| RGB / Anime Matrix / peripherals | UI present, **disabled** |
+| Visual / overdrive / MiniLED | UI present, **disabled** |
+| BIOS / driver Updates | Working — Dell Support links for PC16250 |
 
 ## Requirements
 
@@ -27,14 +35,18 @@ winget install Microsoft.DotNet.DesktopRuntime.8
 
 ## Build & run
 
+Close any running D-Helper first (the exe is locked while elevated). Then:
+
 ```powershell
+Get-Process DHelper -ErrorAction SilentlyContinue | Stop-Process -Force
 cd app
-dotnet build -c Release
 dotnet publish DHelper\DHelper.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o ..\publish
 ..\publish\DHelper.exe
 ```
 
-See [docs/SETUP.md](docs/SETUP.md) and [docs/CAPABILITIES.md](docs/CAPABILITIES.md).
+One output: `publish\DHelper.exe` only.
+
+See [docs/SETUP.md](docs/SETUP.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md), [docs/GHELPER_UI_MAP.md](docs/GHELPER_UI_MAP.md).
 
 ## Probe this PC
 

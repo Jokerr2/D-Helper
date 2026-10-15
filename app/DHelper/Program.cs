@@ -43,13 +43,12 @@ internal static class Program
 
         _appIcon = UiTheme.CreateAppIcon();
         _hal = new CompositeLaptopHal();
-        _hal.Probe(); // File.Exists only — cheap
+        _hal.Probe();
         _sensors = new WindowsSensors();
         _modes = new ModeControl(_hal);
         _battery = new BatteryControl(_hal);
         _display = new DisplayControl();
 
-        // Config-only loads — no Dell CLI at startup.
         _modes.LoadFromConfig();
         _battery.LoadFromConfig();
 
@@ -63,12 +62,8 @@ internal static class Program
         _overlay = new HardwareOverlay(_sensors, _modes);
         _settings = new SettingsForm(_hal, _modes, _battery, _display, _sensors, _overlay, _appIcon);
 
-        // Hotkeys off by default (global hook cost); enable in config if wanted.
-        if (AppConfig.Get("hotkeys", false))
-        {
-            _input = new InputDispatcher(_modes, ShowSettings);
-            _input.Start();
-        }
+        // G-Helper-like: hotkeys on by default
+        SyncHotkeys();
 
         _tray = new NotifyIcon
         {
@@ -82,7 +77,6 @@ internal static class Program
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         _lastOnAc = SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Online;
 
-        // Background — never block tray startup on Dell CLI.
         _ = Task.Run(() => SetAutoModes(force: true, applyCharge: true));
 
         bool firstRun = AppConfig.Get("start_count", 1) <= 1;
@@ -90,7 +84,7 @@ internal static class Program
         if (firstRun || needsSetup)
         {
             if (needsSetup)
-                _settings.Toast("Install Dell Optimizer or Command Configure — open ···");
+                _settings.Toast("Install Dell Optimizer or Command Configure — open Extra");
             ShowSettings();
         }
         else
@@ -100,6 +94,24 @@ internal static class Program
 
         Application.ApplicationExit += (_, _) => Cleanup();
         Application.Run(new ApplicationContext());
+    }
+
+    internal static void SyncHotkeys()
+    {
+        bool want = AppConfig.Get("hotkeys", true);
+        if (want)
+        {
+            if (_input == null && _modes != null)
+            {
+                _input = new InputDispatcher(_modes, ShowSettings);
+                _input.Start();
+            }
+        }
+        else
+        {
+            _input?.Dispose();
+            _input = null;
+        }
     }
 
     private static void OnTrayMouseUp(object? sender, MouseEventArgs e)
@@ -127,7 +139,7 @@ internal static class Program
 
         menu.Items.Add("Open D-Helper", null, (_, _) => ShowSettings());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quiet", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Quiet); });
+        menu.Items.Add("Silent", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Quiet); });
         menu.Items.Add("Balanced", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Optimized); });
         menu.Items.Add("Cool", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Cool); });
         menu.Items.Add("Turbo", null, (_, _) => { _ = _modes?.ApplyAsync(ThermalMode.Ultra); });
@@ -148,7 +160,6 @@ internal static class Program
         _settings.WindowState = FormWindowState.Normal;
         _settings.BringToFront();
         _settings.Activate();
-        // Cache-only UI refresh — never spawn Dell CLI just to open the window.
         _settings.RefreshFromCache();
     }
 
@@ -170,7 +181,6 @@ internal static class Program
         if (!force && onAc == _lastOnAc) return;
         _lastOnAc = onAc;
 
-        // Fire-and-forget async firmware writes — UI stays responsive.
         _modes?.ApplyForPowerState(onAc);
         _display?.ApplyForPowerState(onAc);
 

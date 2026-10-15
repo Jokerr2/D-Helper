@@ -19,23 +19,23 @@ internal sealed class HardwareOverlay : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        BackColor = Color.FromArgb(20, 24, 28);
-        Opacity = 0.85;
-        Width = 260;
-        Height = 72;
+        BackColor = Color.FromArgb(18, 22, 26);
+        Opacity = 0.88;
+        Width = 280;
+        Height = 86;
         Location = new Point(20, 20);
 
         _label = new Label
         {
             Dock = DockStyle.Fill,
             ForeColor = Color.White,
-            Font = new Font("Segoe UI Semibold", 9.5f),
-            Padding = new Padding(12),
+            Font = new Font("Segoe UI Semibold", 9.25f),
+            Padding = new Padding(12, 10, 12, 10),
             Text = "D-Helper"
         };
         Controls.Add(_label);
 
-        _timer = new System.Windows.Forms.Timer { Interval = 2500 };
+        _timer = new System.Windows.Forms.Timer { Interval = 1500 };
         _timer.Tick += (_, _) => RefreshText();
     }
 
@@ -59,7 +59,16 @@ internal sealed class HardwareOverlay : Form
         var s = _sensors.Read();
         var temp = s.CpuTempC.HasValue ? $"{s.CpuTempC}°C" : "—";
         var power = s.OnAc ? "AC" : "Battery";
-        _label.Text = $"CPU {temp}   Batt {s.BatteryPercent}%\n{power}   {_modes.Current}";
+        var fan = s.FanRpm.HasValue ? $"FAN {s.FanRpm}" : "FAN —";
+        var mode = _modes.Current switch
+        {
+            ThermalMode.Quiet => "Silent",
+            ThermalMode.Optimized => "Balanced",
+            ThermalMode.Cool => "Cool",
+            ThermalMode.Ultra => "Turbo",
+            _ => _modes.Current.ToString()
+        };
+        _label.Text = $"CPU {temp}   BAT {s.BatteryPercent}%\n{power}   {fan}   {mode}";
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -78,7 +87,7 @@ internal sealed class HardwareOverlay : Form
         get
         {
             var cp = base.CreateParams;
-            cp.ExStyle |= 0x80;
+            cp.ExStyle |= 0x80; // WS_EX_TOOLWINDOW
             return cp;
         }
     }

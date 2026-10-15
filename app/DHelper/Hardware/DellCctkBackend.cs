@@ -56,7 +56,8 @@ internal sealed class DellCctkBackend
             _ => "Optimized"
         };
         var (code, stdout, stderr) = CliRunner.Run(_path!, $"--ThermalManagement={value}");
-        if (code == 0 || LooksSuccessful(stdout, "ThermalManagement")) return true;
+        if (code == 0) return true;
+        if (LooksSuccessful(stdout + "\n" + stderr, "ThermalManagement")) return true;
         error = FirstUseful(stdout, stderr, $"cctk exit {code}");
         return false;
     }
@@ -97,7 +98,10 @@ internal sealed class DellCctkBackend
         if (arg.Length == 0) return false;
 
         var (code, stdout, stderr) = CliRunner.Run(_path!, $"--PrimaryBattChargeCfg={arg}");
-        if (code == 0 || LooksSuccessful(stdout, "PrimaryBattChargeCfg")) return true;
+        var text = stdout + "\n" + stderr;
+        // Exit 0 = success. Also accept echoed assignment without ERROR keywords.
+        if (code == 0) return true;
+        if (LooksSuccessful(text, "PrimaryBattChargeCfg")) return true;
         error = FirstUseful(stdout, stderr, $"cctk exit {code}");
         return false;
     }

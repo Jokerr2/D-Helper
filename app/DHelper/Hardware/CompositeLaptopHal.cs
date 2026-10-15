@@ -20,14 +20,15 @@ internal sealed class CompositeLaptopHal : ILaptopHal
         _cctk.Probe();
 
         var thermal = _optimizer.Available || _cctk.Available;
+        // Battery: CCTK is the reliable path. Optimizer ChargingMode is often denied on managed PCs.
+        var battery = _cctk.Available || _optimizer.Available;
         _caps = new HalCapabilities
         {
             OptimizerAvailable = _optimizer.Available,
             CctkAvailable = _cctk.Available,
             ThermalControl = thermal,
-            BatteryControl = thermal,
+            BatteryControl = battery,
             FnLockControl = _cctk.Available,
-            // CCTK is preferred for writes — typically much faster than do-cli.
             PrimaryBackend = _cctk.Available ? "Dell Command Configure" : _optimizer.Available ? "Dell Optimizer" : "None",
             OptimizerPath = _optimizer.Path ?? "",
             CctkPath = _cctk.Path ?? "",
@@ -56,7 +57,6 @@ internal sealed class CompositeLaptopHal : ILaptopHal
     public bool SetThermalMode(ThermalMode mode, out string error)
     {
         error = "";
-        // Prefer CCTK (fast BIOS write). Single backend only — never chain both.
         if (_cctk.Available)
         {
             if (_cctk.SetThermalMode(mode, out error))
@@ -64,6 +64,7 @@ internal sealed class CompositeLaptopHal : ILaptopHal
                 _cachedThermal = mode;
                 return true;
             }
+            // Fall through to Optimizer only if CCTK hard-failed and Optimizer exists.
         }
         if (_optimizer.Available)
         {
@@ -73,6 +74,7 @@ internal sealed class CompositeLaptopHal : ILaptopHal
                 return true;
             }
         }
+        error = DellErrors.Humanize(error);
         if (string.IsNullOrEmpty(error))
             error = "No Dell thermal backend available";
         _caps.LastError = error;
@@ -97,6 +99,10 @@ internal sealed class CompositeLaptopHal : ILaptopHal
     public bool SetChargeMode(ChargeMode mode, int? customStart, int? customStop, out string error)
     {
         error = "";
+
+        // IMPORTANT: When CCTK exists, use it exclusively for battery.
+        // Dell Optimizer ChargingMode is frequently denied ("Access ... ChargingMode is denied")
+        // on Dell Pro / IT-managed machines — falling through only shows a confusing error.
         if (_cctk.Available)
         {
             if (_cctk.SetChargeMode(mode, customStart, customStop, out error))
@@ -104,7 +110,11 @@ internal sealed class CompositeLaptopHal : ILaptopHal
                 CacheCharge(mode, customStart, customStop);
                 return true;
             }
+            error = DellErrors.Humanize(error);
+            _caps.LastError = error;
+            return false;
         }
+
         if (_optimizer.Available)
         {
             if (_optimizer.SetChargeMode(mode, customStart, customStop, out error))
@@ -112,9 +122,12 @@ internal sealed class CompositeLaptopHal : ILaptopHal
                 CacheCharge(mode, customStart, customStop);
                 return true;
             }
+            error = DellErrors.Humanize(error);
+            _caps.LastError = error;
+            return false;
         }
-        if (string.IsNullOrEmpty(error))
-            error = "No Dell battery backend available";
+
+        error = "Install Dell Command | Configure for battery charge control";
         _caps.LastError = error;
         return false;
     }
@@ -130,7 +143,12 @@ internal sealed class CompositeLaptopHal : ILaptopHal
 
     public bool SetFnLock(bool enabled, out string error)
     {
-        if (_cctk.Available) return _cctk.SetFnLock(enabled, out error);
+        if (_cctk.Available)
+        {
+            var ok = _cctk.SetFnLock(enabled, out error);
+            if (!ok) error = DellErrors.Humanize(error);
+            return ok;
+        }
         error = "FnLock requires Dell Command Configure";
         return false;
     }

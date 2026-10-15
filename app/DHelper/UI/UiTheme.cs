@@ -11,13 +11,20 @@ internal static class UiTheme
     public static readonly Color Accent = Color.FromArgb(46, 168, 176);
     public static readonly Color AccentSoft = Color.FromArgb(28, 72, 78);
     public static readonly Color Danger = Color.FromArgb(200, 90, 90);
+    public static readonly Color ColorSilent = Color.FromArgb(72, 160, 120);
+    public static readonly Color ColorBalanced = Color.FromArgb(80, 140, 200);
+    public static readonly Color ColorTurbo = Color.FromArgb(200, 110, 70);
+    public static readonly Color ColorCool = Color.FromArgb(90, 170, 190);
 
-    public static Font TitleFont { get; } = new("Segoe UI Semibold", 14f);
-    public static Font BodyFont { get; } = new("Segoe UI", 9.5f);
-    public static Font SmallFont { get; } = new("Segoe UI", 8.75f);
-    public static Font ModeFont { get; } = new("Segoe UI Semibold", 9.25f);
+    public const string UnavailableTip = "Not available on Dell Pro";
 
-    public static void StyleForm(Form form)
+    public static Font TitleFont { get; } = new("Segoe UI Semibold", 13f);
+    public static Font BodyFont { get; } = new("Segoe UI", 9.25f);
+    public static Font SmallFont { get; } = new("Segoe UI", 8.5f);
+    public static Font ModeFont { get; } = new("Segoe UI Semibold", 9f);
+    public static Font SectionFont { get; } = new("Segoe UI Semibold", 9f);
+
+    public static void SpanForm(Form form)
     {
         form.BackColor = Bg;
         form.ForeColor = Text;
@@ -30,7 +37,9 @@ internal static class UiTheme
         form.AutoScaleMode = AutoScaleMode.Dpi;
     }
 
-    public static Button Pill(string text, Size size)
+    public static void StyleForm(Form form) => SpanForm(form);
+
+    public static Button Pill(string text, Size size, Color? borderColor = null)
     {
         var b = new Button
         {
@@ -41,89 +50,72 @@ internal static class UiTheme
             ForeColor = Text,
             Font = ModeFont,
             Cursor = Cursors.Hand,
-            Margin = new Padding(0, 0, 8, 0),
+            Margin = new Padding(0, 0, 6, 0),
             Padding = Padding.Empty,
             TabStop = true
         };
         b.FlatAppearance.BorderSize = 1;
-        b.FlatAppearance.BorderColor = Border;
+        b.FlatAppearance.BorderColor = borderColor ?? Border;
         b.FlatAppearance.MouseOverBackColor = Color.FromArgb(52, 58, 66);
         b.FlatAppearance.MouseDownBackColor = AccentSoft;
         return b;
     }
 
-    public static void SetPillActive(Button b, bool active)
+    public static void SetPillActive(Button b, bool active, Color? accentBorder = null)
     {
         b.BackColor = active ? AccentSoft : SurfaceAlt;
         b.ForeColor = active ? Color.FromArgb(200, 240, 245) : Text;
-        b.FlatAppearance.BorderColor = active ? Accent : Border;
+        b.FlatAppearance.BorderColor = active ? (accentBorder ?? Accent) : Border;
     }
 
-    public static CheckBox Toggle(string text, bool value)
+    public static void SetDisabled(Control c, ToolTip tip, string reason = UnavailableTip)
     {
-        return new CheckBox
-        {
-            Text = text,
-            Checked = value,
-            AutoSize = true,
-            ForeColor = Text,
-            Font = BodyFont,
-            Margin = new Padding(0, 8, 0, 0),
-            Cursor = Cursors.Hand,
-            BackColor = Color.Transparent
-        };
+        c.Enabled = false;
+        tip.SetToolTip(c, reason);
     }
 
-    public static ComboBox DropDown(int width)
+    public static CheckBox Toggle(string text, bool value) => new()
     {
-        var cb = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Width = width,
-            Height = 30,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = SurfaceAlt,
-            ForeColor = Text,
-            Font = BodyFont,
-            DrawMode = DrawMode.OwnerDrawFixed,
-            ItemHeight = 26,
-            IntegralHeight = false,
-            Margin = new Padding(0)
-        };
-        cb.DrawItem += (_, e) =>
-        {
-            e.DrawBackground();
-            if (e.Index < 0) return;
-            bool selected = (e.State & DrawItemState.Selected) != 0;
-            using var bg = new SolidBrush(selected ? AccentSoft : SurfaceAlt);
-            e.Graphics.FillRectangle(bg, e.Bounds);
-            using var fg = new SolidBrush(Text);
-            var text = cb.Items[e.Index]?.ToString() ?? "";
-            e.Graphics.DrawString(text, BodyFont, fg, e.Bounds.X + 8, e.Bounds.Y + 4);
-        };
-        return cb;
-    }
+        Text = text,
+        Checked = value,
+        AutoSize = true,
+        ForeColor = Text,
+        Font = BodyFont,
+        Margin = new Padding(0, 6, 0, 0),
+        Cursor = Cursors.Hand,
+        BackColor = Color.Transparent
+    };
 
     public static Label SectionLabel(string text) => new()
     {
-        Text = text.ToUpperInvariant(),
-        Font = SmallFont,
-        ForeColor = Muted,
+        Text = text,
+        Font = SectionFont,
+        ForeColor = Text,
         AutoSize = true,
-        Margin = new Padding(2, 14, 0, 8)
+        Margin = new Padding(2, 10, 0, 6)
     };
 
-    public static Panel Card(int height)
+    public static Panel Section(int height) => new()
     {
-        return new Panel
-        {
-            Width = 360,
-            Height = height,
-            BackColor = Surface,
-            Margin = new Padding(0, 0, 0, 12),
-            Padding = new Padding(14, 12, 14, 12)
-        };
-    }
+        Width = 360,
+        Height = height,
+        BackColor = Surface,
+        Margin = new Padding(0, 0, 0, 8),
+        Padding = new Padding(12, 10, 12, 10)
+    };
+
+    public static Panel Card(int height) => Section(height);
+
+    public static Label Chip(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        ForeColor = Text,
+        Font = SmallFont,
+        BackColor = SurfaceAlt,
+        Padding = new Padding(8, 5, 8, 5),
+        Margin = new Padding(0, 0, 6, 0)
+    };
 
     public static Icon CreateAppIcon()
     {

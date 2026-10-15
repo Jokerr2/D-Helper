@@ -56,6 +56,7 @@ internal static class AppConfig
             ["refresh_dc"] = 60,
             ["startup"] = false,
             ["overlay"] = false,
+            ["hotkeys"] = true,
             ["fn_lock"] = false,
             ["start_count"] = 0
         };

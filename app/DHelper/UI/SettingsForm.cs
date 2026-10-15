@@ -15,28 +15,28 @@ internal sealed class SettingsForm : Form
     private readonly DisplayControl _display;
     private readonly WindowsSensors _sensors;
     private readonly HardwareOverlay _overlay;
-    private readonly System.Windows.Forms.Timer _sensorTimer;
     private readonly Icon _appIcon;
+    private readonly ToolTip _tip = new() { ShowAlways = true };
+    private readonly System.Windows.Forms.Timer _sensorTimer;
+    private readonly System.Windows.Forms.Timer _batteryDebounce;
 
+    private readonly Label _modelLabel;
     private readonly Label _sensorCpu;
     private readonly Label _sensorBatt;
     private readonly Label _sensorPower;
     private readonly Label _sensorHz;
-    private readonly Label _toastLabel;
-    private readonly Label _chargeHint;
+    private readonly Label _sensorFan;
     private readonly Dictionary<ThermalMode, Button> _modeButtons = new();
     private readonly DarkSelect _chargeSelect;
     private readonly TrackBar _chargeStop;
     private readonly Label _chargeStopValue;
-    private readonly CheckBox _autoThermal;
-    private readonly CheckBox _autoRefresh;
     private readonly CheckBox _startup;
-    private readonly CheckBox _overlayChk;
-    private readonly DarkSelect _modeAc;
-    private readonly DarkSelect _modeDc;
+    private readonly Label _toastLabel;
     private readonly FlowLayoutPanel _root;
     private readonly List<Control> _fullWidth = new();
-    private readonly System.Windows.Forms.Timer _batteryDebounce;
+    private FansPowerForm? _fansForm;
+    private ExtraForm? _extraForm;
+    private UpdatesForm? _updatesForm;
     private bool _suppressBatteryApply;
     private string _toast = "";
 
@@ -60,8 +60,8 @@ internal sealed class SettingsForm : Form
         UiTheme.StyleForm(this);
         Text = "D-Helper";
         Icon = _appIcon;
-        MinimumSize = new Size(400, 660);
-        ClientSize = new Size(420, 720);
+        MinimumSize = new Size(420, 700);
+        ClientSize = new Size(440, 780);
         Padding = new Padding(0);
 
         _root = new FlowLayoutPanel
@@ -70,17 +70,19 @@ internal sealed class SettingsForm : Form
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoScroll = true,
-            Padding = new Padding(22, 20, 18, 18),
+            Padding = new Padding(14, 12, 10, 12),
             BackColor = UiTheme.Bg
         };
         Controls.Add(_root);
 
-        BuildHeader();
-        (_sensorCpu, _sensorBatt, _sensorPower, _sensorHz) = BuildSensors();
-        BuildModes();
-        (_chargeSelect, _chargeStop, _chargeStopValue, _chargeHint) = BuildBattery();
-        (_autoThermal, _autoRefresh, _startup, _overlayChk, _modeAc, _modeDc) = BuildAutomation();
-        _toastLabel = BuildToast();
+        (_modelLabel, _sensorCpu, _sensorBatt, _sensorPower, _sensorHz, _sensorFan) = BuildHeaderSensors();
+        BuildPerformance();
+        BuildGpuRow();
+        BuildScreenRow();
+        BuildKeyboardRow();
+        (_chargeSelect, _chargeStop, _chargeStopValue) = BuildBattery();
+        BuildLightingDisabled();
+        (_startup, _toastLabel) = BuildFooter();
 
         WireEvents();
 
@@ -104,128 +106,218 @@ internal sealed class SettingsForm : Form
             FitToContent();
             PositionNearTray();
             RefreshFromCache();
-            if (_overlayChk.Checked) _overlay.SetEnabled(true);
+            if (AppConfig.Get("overlay", false)) _overlay.SetEnabled(true);
         };
         Resize += (_, _) => LayoutAdaptive();
     }
 
-    private void BuildHeader()
+    private (Label, Label, Label, Label, Label, Label) BuildHeaderSensors()
     {
-        var header = new Panel
-        {
-            Height = 58,
-            Margin = new Padding(0, 0, 0, 10),
-            BackColor = Color.Transparent
-        };
-        TrackWidth(header);
+        var card = UiTheme.Section(78);
+        TrackWidth(card);
 
-        var title = new Label
+        var model = new Label
         {
-            Text = "D-Helper",
+            Text = "Dell Pro 16 PC16250",
             Font = UiTheme.TitleFont,
             ForeColor = UiTheme.Text,
             AutoSize = true,
-            Location = new Point(0, 2)
+            Location = new Point(4, 2)
         };
-        var subtitle = new Label
-        {
-            Text = "Dell Pro · click the tray icon to open",
-            Font = UiTheme.SmallFont,
-            ForeColor = UiTheme.Muted,
-            AutoSize = true,
-            Location = new Point(0, 34)
-        };
-        var more = UiTheme.Pill("···", new Size(42, 34));
-        more.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        more.Click += (_, _) =>
-        {
-            using var f = new ExtraForm(_hal, _appIcon);
-            f.ShowDialog(this);
-        };
-        header.Resize += (_, _) => more.Left = Math.Max(0, header.ClientSize.Width - more.Width);
-
-        header.Controls.Add(title);
-        header.Controls.Add(subtitle);
-        header.Controls.Add(more);
-        more.Left = header.Width - more.Width;
-        _root.Controls.Add(header);
-    }
-
-    private (Label, Label, Label, Label) BuildSensors()
-    {
-        var card = UiTheme.Card(58);
-        TrackWidth(card);
-
         var row = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill,
+            Location = new Point(0, 36),
+            Height = 34,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
-            Padding = new Padding(0, 2, 0, 0)
+            BackColor = Color.Transparent
         };
-
-        var cpu = Chip("CPU —");
-        var batt = Chip("BAT —");
-        var power = Chip("—");
-        var hz = Chip("— Hz");
-        row.Controls.AddRange(new Control[] { cpu, batt, power, hz });
+        var cpu = UiTheme.Chip("CPU —");
+        var batt = UiTheme.Chip("BAT —");
+        var power = UiTheme.Chip("—");
+        var hz = UiTheme.Chip("— Hz");
+        var fan = UiTheme.Chip("FAN —");
+        row.Controls.AddRange(new Control[] { cpu, batt, power, hz, fan });
+        card.Controls.Add(model);
         card.Controls.Add(row);
+        card.Resize += (_, _) => row.Width = Math.Max(200, card.ClientSize.Width - 8);
         _root.Controls.Add(card);
-        return (cpu, batt, power, hz);
+        return (model, cpu, batt, power, hz, fan);
     }
 
-    private void BuildModes()
+    private void BuildPerformance()
     {
-        var label = UiTheme.SectionLabel("Performance");
-        TrackWidth(label);
-        _root.Controls.Add(label);
+        var title = UiTheme.SectionLabel("Performance");
+        TrackWidth(title);
+        _root.Controls.Add(title);
+
+        var card = UiTheme.Section(108);
+        TrackWidth(card);
 
         var modeRow = new FlowLayoutPanel
         {
-            Height = 54,
+            Location = new Point(0, 0),
+            Height = 48,
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
-            Margin = new Padding(0, 0, 0, 6),
-            Padding = new Padding(0)
-        };
-        TrackWidth(modeRow);
-
-        var modes = new[]
-        {
-            (ThermalMode.Quiet, "Quiet"),
-            (ThermalMode.Optimized, "Balanced"),
-            (ThermalMode.Cool, "Cool"),
-            (ThermalMode.Ultra, "Turbo")
+            BackColor = Color.Transparent
         };
 
-        foreach (var (mode, name) in modes)
+        var modes = new (ThermalMode Mode, string Name, Color Border)[]
         {
-            var btn = UiTheme.Pill(name, new Size(80, 50));
-            btn.Margin = new Padding(0, 0, 8, 0);
+            (ThermalMode.Quiet, "Silent", UiTheme.ColorSilent),
+            (ThermalMode.Optimized, "Balanced", UiTheme.ColorBalanced),
+            (ThermalMode.Cool, "Cool", UiTheme.ColorCool),
+            (ThermalMode.Ultra, "Turbo", UiTheme.ColorTurbo)
+        };
+
+        foreach (var (mode, name, border) in modes)
+        {
+            var btn = UiTheme.Pill(name, new Size(84, 44), border);
+            btn.Tag = border;
             btn.Click += (_, _) => ApplyMode(mode);
             _modeButtons[mode] = btn;
             modeRow.Controls.Add(btn);
         }
-        _root.Controls.Add(modeRow);
+
+        var fans = UiTheme.Pill("Fans + Power", new Size(120, 40));
+        fans.Location = new Point(0, 56);
+        fans.Click += (_, _) => OpenFans();
+
+        card.Controls.Add(modeRow);
+        card.Controls.Add(fans);
+        card.Resize += (_, _) =>
+        {
+            modeRow.Width = Math.Max(200, card.ClientSize.Width);
+            StretchModePills(modeRow.Width);
+        };
+        _root.Controls.Add(card);
     }
 
-    private (DarkSelect, TrackBar, Label, Label) BuildBattery()
+    private void BuildGpuRow()
     {
-        var label = UiTheme.SectionLabel("Battery limit");
-        TrackWidth(label);
-        _root.Controls.Add(label);
+        var title = UiTheme.SectionLabel("GPU Mode");
+        TrackWidth(title);
+        _root.Controls.Add(title);
 
-        var card = UiTheme.Card(148);
+        var card = UiTheme.Section(56);
+        TrackWidth(card);
+        var row = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false
+        };
+        foreach (var name in new[] { "Eco", "Standard", "Ultimate", "Optimized" })
+        {
+            var b = UiTheme.Pill(name, new Size(88, 40));
+            UiTheme.SetDisabled(b, _tip, "iGPU only — GPU MUX not available on Dell Pro");
+            row.Controls.Add(b);
+        }
+        card.Controls.Add(row);
+        _root.Controls.Add(card);
+    }
+
+    private void BuildScreenRow()
+    {
+        var title = UiTheme.SectionLabel("Screen");
+        TrackWidth(title);
+        _root.Controls.Add(title);
+
+        var card = UiTheme.Section(56);
+        TrackWidth(card);
+        var row = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight
+        };
+        foreach (var name in new[] { "60 Hz", "Max Hz", "Auto", "Overdrive", "MiniLED" })
+        {
+            var b = UiTheme.Pill(name, new Size(72, 40));
+            if (name is "60 Hz" or "Max Hz" or "Auto")
+            {
+                b.Enabled = true;
+                b.Click += (_, _) => ApplyScreenQuick(name);
+                _tip.SetToolTip(b, "Uses Windows refresh-rate control");
+            }
+            else
+            {
+                UiTheme.SetDisabled(b, _tip, "Not available on Dell Pro");
+            }
+            row.Controls.Add(b);
+        }
+        card.Controls.Add(row);
+        _root.Controls.Add(card);
+    }
+
+    private void BuildKeyboardRow()
+    {
+        var title = UiTheme.SectionLabel("Laptop");
+        TrackWidth(title);
+        _root.Controls.Add(title);
+
+        var card = UiTheme.Section(56);
+        TrackWidth(card);
+        var row = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight
+        };
+
+        var extra = UiTheme.Pill("Extra", new Size(88, 40));
+        extra.Click += (_, _) => OpenExtra();
+
+        var fn = UiTheme.Pill("Fn-Lock", new Size(88, 40));
+        if (_hal.Capabilities.FnLockControl)
+        {
+            fn.Click += async (_, _) =>
+            {
+                bool next = !AppConfig.Get("fn_lock", false);
+                Toast(next ? "Fn-Lock on…" : "Fn-Lock off…");
+                var ok = await Task.Run(() => _hal.SetFnLock(next, out var err)).ConfigureAwait(true);
+                if (ok)
+                {
+                    AppConfig.Set("fn_lock", next);
+                    UiTheme.SetPillActive(fn, next);
+                    Toast(next ? "Fn-Lock enabled" : "Fn-Lock disabled");
+                }
+                else Toast(string.IsNullOrWhiteSpace(_hal.Capabilities.LastError) ? "Fn-Lock failed" : _hal.Capabilities.LastError);
+            };
+            UiTheme.SetPillActive(fn, AppConfig.Get("fn_lock", false));
+        }
+        else
+        {
+            UiTheme.SetDisabled(fn, _tip, "Needs Dell Command | Configure (cctk)");
+        }
+
+        var overlay = UiTheme.Pill("Overlay", new Size(88, 40));
+        overlay.Click += (_, _) =>
+        {
+            bool on = !AppConfig.Get("overlay", false);
+            AppConfig.Set("overlay", on);
+            _overlay.SetEnabled(on);
+            UiTheme.SetPillActive(overlay, on);
+            Toast(on ? "Overlay on" : "Overlay off");
+        };
+        UiTheme.SetPillActive(overlay, AppConfig.Get("overlay", false));
+
+        var lighting = UiTheme.Pill("Lighting", new Size(88, 40));
+        UiTheme.SetDisabled(lighting, _tip, "RGB / Anime Matrix not available on Dell Pro");
+
+        row.Controls.AddRange(new Control[] { extra, fn, overlay, lighting });
+        card.Controls.Add(row);
+        _root.Controls.Add(card);
+    }
+
+    private (DarkSelect, TrackBar, Label) BuildBattery()
+    {
+        var title = UiTheme.SectionLabel("Battery charge limit");
+        TrackWidth(title);
+        _root.Controls.Add(title);
+
+        var card = UiTheme.Section(130);
         TrackWidth(card);
 
-        var title = new Label
-        {
-            Text = "Charge mode",
-            Font = UiTheme.SmallFont,
-            ForeColor = UiTheme.Muted,
-            AutoSize = true,
-            Location = new Point(14, 12)
-        };
         var value = new Label
         {
             Text = "80%",
@@ -239,7 +331,7 @@ internal sealed class SettingsForm : Form
             new[] { "Custom", "PrimarilyAC", "Adaptive", "ExpressCharge", "Standard" },
             ContentWidth() - 28)
         {
-            Location = new Point(14, 38)
+            Location = new Point(4, 8)
         };
 
         var hint = new Label
@@ -248,7 +340,7 @@ internal sealed class SettingsForm : Form
             Font = UiTheme.SmallFont,
             ForeColor = UiTheme.Muted,
             AutoSize = true,
-            Location = new Point(14, 82)
+            Location = new Point(4, 48)
         };
 
         var track = new TrackBar
@@ -257,8 +349,8 @@ internal sealed class SettingsForm : Form
             Maximum = 100,
             TickFrequency = 5,
             Value = 80,
-            Height = 40,
-            Location = new Point(8, 102),
+            Height = 36,
+            Location = new Point(0, 72),
             BackColor = UiTheme.Surface,
             TickStyle = TickStyle.None
         };
@@ -267,7 +359,6 @@ internal sealed class SettingsForm : Form
             value.Text = $"{track.Value}%";
             ScheduleBatteryApply();
         };
-
         select.SelectionChanged += (_, _) =>
         {
             bool custom = select.SelectedItem == "Custom";
@@ -277,119 +368,97 @@ internal sealed class SettingsForm : Form
             ScheduleBatteryApply();
         };
 
-        card.Controls.AddRange(new Control[] { title, value, select, hint, track });
-        card.Resize += (_, _) =>
+        var full = UiTheme.Pill("100%", new Size(56, 28));
+        full.Font = UiTheme.SmallFont;
+        full.Click += (_, _) =>
         {
-            select.Width = Math.Max(140, card.ClientSize.Width - 28);
-            track.Width = Math.Max(140, card.ClientSize.Width - 20);
-            value.Left = card.ClientSize.Width - value.PreferredWidth - 14;
-            value.Top = 10;
+            select.SelectedItem = "Custom";
+            track.Value = 100;
+            ScheduleBatteryApply();
         };
 
+        card.Controls.AddRange(new Control[] { select, value, hint, track, full });
+        card.Resize += (_, _) =>
+        {
+            select.Width = Math.Max(140, card.ClientSize.Width - 70);
+            track.Width = Math.Max(140, card.ClientSize.Width - 12);
+            value.Left = card.ClientSize.Width - value.PreferredWidth - 8;
+            value.Top = 10;
+            full.Left = card.ClientSize.Width - full.Width - 4;
+            full.Top = 44;
+        };
         _root.Controls.Add(card);
-        return (select, track, value, hint);
+        return (select, track, value);
     }
 
-    private (CheckBox, CheckBox, CheckBox, CheckBox, DarkSelect, DarkSelect) BuildAutomation()
+    private void BuildLightingDisabled()
     {
-        var label = UiTheme.SectionLabel("Automation");
-        TrackWidth(label);
-        _root.Controls.Add(label);
+        var title = UiTheme.SectionLabel("Visual / Matrix");
+        TrackWidth(title);
+        _root.Controls.Add(title);
 
-        var card = UiTheme.Card(228);
+        var card = UiTheme.Section(52);
+        TrackWidth(card);
+        var row = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight
+        };
+        foreach (var name in new[] { "Visual mode", "Anime Matrix", "Peripherals" })
+        {
+            var b = UiTheme.Pill(name, new Size(110, 36));
+            UiTheme.SetDisabled(b, _tip, "Not available on Dell Pro");
+            row.Controls.Add(b);
+        }
+        card.Controls.Add(row);
+        _root.Controls.Add(card);
+    }
+
+    private (CheckBox, Label) BuildFooter()
+    {
+        var card = UiTheme.Section(96);
         TrackWidth(card);
 
-        var autoThermal = UiTheme.Toggle("Switch mode with AC / battery", AppConfig.Get("auto_thermal", true));
-        autoThermal.Location = new Point(14, 14);
-
-        var acLbl = new Label
-        {
-            Text = "On AC",
-            ForeColor = UiTheme.Muted,
-            Font = UiTheme.SmallFont,
-            AutoSize = true,
-            Location = new Point(14, 52)
-        };
-        var modeAc = new DarkSelect(new[] { "Quiet", "Optimized", "Cool", "Ultra" }, 150)
-        {
-            Location = new Point(14, 72)
-        };
-
-        var dcLbl = new Label
-        {
-            Text = "On battery",
-            ForeColor = UiTheme.Muted,
-            Font = UiTheme.SmallFont,
-            AutoSize = true,
-            Location = new Point(180, 52)
-        };
-        var modeDc = new DarkSelect(new[] { "Quiet", "Optimized", "Cool", "Ultra" }, 150)
-        {
-            Location = new Point(180, 72)
-        };
-
-        modeAc.SelectedItem = AppConfig.Get("thermal_mode_ac", "Optimized");
-        modeDc.SelectedItem = AppConfig.Get("thermal_mode_dc", "Quiet");
-
-        var autoRefresh = UiTheme.Toggle("Auto refresh rate (max on AC · 60 Hz on battery)", AppConfig.Get("auto_refresh", true));
-        autoRefresh.Location = new Point(14, 120);
         var startup = UiTheme.Toggle("Start with Windows", StartupHelper.IsEnabled());
-        startup.Location = new Point(14, 154);
-        var overlay = UiTheme.Toggle("On-screen metrics overlay", AppConfig.Get("overlay", false));
-        overlay.Location = new Point(14, 188);
+        startup.Location = new Point(4, 4);
 
-        card.Controls.AddRange(new Control[]
+        var updates = UiTheme.Pill("Updates", new Size(96, 36));
+        updates.Location = new Point(4, 40);
+        updates.Click += (_, _) => OpenUpdates();
+
+        var quit = UiTheme.Pill("Quit", new Size(72, 36));
+        quit.Click += (_, _) =>
         {
-            autoThermal, acLbl, modeAc, dcLbl, modeDc, autoRefresh, startup, overlay
-        });
-        card.Resize += (_, _) =>
-        {
-            int half = Math.Max(120, (card.ClientSize.Width - 40) / 2);
-            modeAc.Width = half;
-            modeDc.Width = half;
-            modeDc.Left = 14 + half + 12;
-            dcLbl.Left = modeDc.Left;
+            Hide();
+            Application.Exit();
         };
 
-        _root.Controls.Add(card);
-        return (autoThermal, autoRefresh, startup, overlay, modeAc, modeDc);
-    }
-
-    private Label BuildToast()
-    {
         var toast = new Label
         {
-            Height = 30,
+            Height = 36,
             Font = UiTheme.SmallFont,
             ForeColor = UiTheme.Muted,
             TextAlign = ContentAlignment.MiddleLeft,
-            Margin = new Padding(2, 10, 0, 0)
+            Location = new Point(110, 42),
+            AutoEllipsis = true
         };
-        TrackWidth(toast);
-        _root.Controls.Add(toast);
-        return toast;
+
+        card.Controls.AddRange(new Control[] { startup, updates, quit, toast });
+        card.Resize += (_, _) =>
+        {
+            quit.Left = card.ClientSize.Width - quit.Width - 4;
+            quit.Top = 40;
+            toast.Left = updates.Right + 10;
+            toast.Width = Math.Max(80, quit.Left - toast.Left - 8);
+            toast.Top = 42;
+        };
+        _root.Controls.Add(card);
+        return (startup, toast);
     }
 
     private void WireEvents()
     {
-        _autoThermal.CheckedChanged += (_, _) => AppConfig.Set("auto_thermal", _autoThermal.Checked);
-        _autoRefresh.CheckedChanged += (_, _) => AppConfig.Set("auto_refresh", _autoRefresh.Checked);
         _startup.CheckedChanged += (_, _) => StartupHelper.SetEnabled(_startup.Checked);
-        _overlayChk.CheckedChanged += (_, _) =>
-        {
-            AppConfig.Set("overlay", _overlayChk.Checked);
-            _overlay.SetEnabled(_overlayChk.Checked);
-        };
-        _modeAc.SelectionChanged += (_, _) =>
-        {
-            if (_modeAc.SelectedItem != null)
-                AppConfig.Set("thermal_mode_ac", _modeAc.SelectedItem);
-        };
-        _modeDc.SelectionChanged += (_, _) =>
-        {
-            if (_modeDc.SelectedItem != null)
-                AppConfig.Set("thermal_mode_dc", _modeDc.SelectedItem);
-        };
         _modes.ModeChanged += (mode, err) =>
         {
             if (IsDisposed || !IsHandleCreated) return;
@@ -405,14 +474,69 @@ internal sealed class SettingsForm : Form
         };
     }
 
+    private void OpenFans()
+    {
+        if (_fansForm == null || _fansForm.IsDisposed)
+            _fansForm = new FansPowerForm(_hal, _modes, _appIcon);
+        _fansForm.Show();
+        _fansForm.BringToFront();
+    }
+
+    private void OpenExtra()
+    {
+        if (_extraForm == null || _extraForm.IsDisposed)
+            _extraForm = new ExtraForm(_hal, _modes, _display, _overlay, _appIcon, Program.SyncHotkeys);
+        _extraForm.Show();
+        _extraForm.BringToFront();
+    }
+
+    private void OpenUpdates()
+    {
+        if (_updatesForm == null || _updatesForm.IsDisposed)
+            _updatesForm = new UpdatesForm(_hal, _appIcon);
+        _updatesForm.Show();
+        _updatesForm.BringToFront();
+    }
+
+    private void ApplyScreenQuick(string name)
+    {
+        try
+        {
+            if (name == "60 Hz")
+            {
+                _display.SetRefreshRate(60);
+                Toast("60 Hz");
+            }
+            else if (name == "Max Hz")
+            {
+                var max = _display.GetMaxRefreshRate();
+                _display.SetRefreshRate(max);
+                Toast($"Max {max} Hz");
+            }
+            else
+            {
+                AppConfig.Set("auto_refresh", true);
+                _display.ApplyForPowerState(SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Online);
+                Toast("Auto refresh by power state");
+            }
+            UpdateSensors();
+        }
+        catch (Exception ex)
+        {
+            Toast(ex.Message);
+        }
+    }
+
     public void Toast(string message)
     {
-        _toast = message;
-        _toastLabel.ForeColor = message.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
-                                message.Contains("Install", StringComparison.OrdinalIgnoreCase) ||
-                                message.Contains("error", StringComparison.OrdinalIgnoreCase)
-            ? UiTheme.Danger
-            : UiTheme.Muted;
+        _toast = DellErrors.Humanize(message);
+        bool bad = _toast.Contains("fail", StringComparison.OrdinalIgnoreCase) ||
+                   _toast.Contains("locked", StringComparison.OrdinalIgnoreCase) ||
+                   _toast.Contains("denied", StringComparison.OrdinalIgnoreCase) ||
+                   _toast.Contains("Install", StringComparison.OrdinalIgnoreCase) ||
+                   _toast.Contains("Administrator", StringComparison.OrdinalIgnoreCase) ||
+                   _toast.Contains("password", StringComparison.OrdinalIgnoreCase);
+        _toastLabel.ForeColor = bad ? UiTheme.Danger : UiTheme.Muted;
         _toastLabel.Text = _toast;
     }
 
@@ -428,6 +552,7 @@ internal sealed class SettingsForm : Form
             bool custom = _battery.CurrentMode == ChargeMode.Custom;
             _chargeStop.Enabled = custom;
             _chargeStopValue.Visible = custom;
+            _startup.Checked = StartupHelper.IsEnabled();
             UpdateSensors();
             if (!_hal.Capabilities.ThermalControl && string.IsNullOrEmpty(_toast))
                 Toast("Install Dell Optimizer or Command Configure");
@@ -445,6 +570,8 @@ internal sealed class SettingsForm : Form
         _sensorBatt.Text = $"BAT {s.BatteryPercent}%";
         _sensorPower.Text = s.OnAc ? "AC" : "DC";
         _sensorHz.Text = $"{_display.GetCurrentRefreshRate()} Hz";
+        _sensorFan.Text = s.FanRpm.HasValue ? $"FAN {s.FanRpm}" : "FAN —";
+        _modelLabel.Text = "Dell Pro 16 PC16250";
     }
 
     private void ApplyMode(ThermalMode mode)
@@ -454,8 +581,6 @@ internal sealed class SettingsForm : Form
             Toast("Install Dell Optimizer or Command Configure");
             return;
         }
-
-        // Instant feedback — firmware write runs in the background.
         HighlightMode(mode);
         Toast($"Switched to {DisplayName(mode)}");
         _ = ApplyModeAsync(mode);
@@ -480,7 +605,7 @@ internal sealed class SettingsForm : Form
         if (_suppressBatteryApply) return;
         if (!_hal.Capabilities.BatteryControl)
         {
-            Toast("Install Dell Optimizer or Command Configure");
+            Toast("Install Dell Command | Configure for battery control");
             return;
         }
         if (!Enum.TryParse<ChargeMode>(_chargeSelect.SelectedItem, out var mode))
@@ -499,60 +624,52 @@ internal sealed class SettingsForm : Form
     private void HighlightMode(ThermalMode mode)
     {
         foreach (var (m, btn) in _modeButtons)
-            UiTheme.SetPillActive(btn, m == mode);
+        {
+            var border = btn.Tag as Color? ?? UiTheme.Accent;
+            UiTheme.SetPillActive(btn, m == mode, border);
+        }
     }
 
     private static string DisplayName(ThermalMode mode) => mode switch
     {
-        ThermalMode.Quiet => "Quiet",
+        ThermalMode.Quiet => "Silent",
         ThermalMode.Optimized => "Balanced",
         ThermalMode.Cool => "Cool",
         ThermalMode.Ultra => "Turbo",
         _ => mode.ToString()
     };
 
-    private static Label Chip(string text) => new()
-    {
-        Text = text,
-        AutoSize = true,
-        ForeColor = UiTheme.Text,
-        Font = UiTheme.SmallFont,
-        BackColor = UiTheme.SurfaceAlt,
-        Padding = new Padding(10, 7, 10, 7),
-        Margin = new Padding(0, 0, 8, 0)
-    };
-
     private void TrackWidth(Control c) => _fullWidth.Add(c);
+    private int ContentWidth() => Math.Max(360, ClientSize.Width - 40);
 
-    private int ContentWidth() => Math.Max(340, ClientSize.Width - 52);
+    private void StretchModePills(int width)
+    {
+        if (_modeButtons.Count == 0) return;
+        int gap = 6;
+        int n = _modeButtons.Count;
+        int btnW = Math.Max(64, (width - gap * (n - 1) - 8) / n);
+        int i = 0;
+        foreach (var btn in _modeButtons.Values)
+        {
+            btn.Width = btnW;
+            btn.Margin = new Padding(0, 0, i < n - 1 ? gap : 0, 0);
+            i++;
+        }
+    }
 
     private void LayoutAdaptive()
     {
         int w = ContentWidth();
-        foreach (var c in _fullWidth)
-            c.Width = w;
-
-        // Stretch mode pills evenly across width
-        if (_modeButtons.Count == 4)
-        {
-            int gap = 8;
-            int btnW = Math.Max(70, (w - gap * 3) / 4);
-            int i = 0;
-            foreach (var btn in _modeButtons.Values)
-            {
-                btn.Width = btnW;
-                btn.Margin = new Padding(0, 0, i < 3 ? gap : 0, 0);
-                i++;
-            }
-        }
+        foreach (var c in _fullWidth) c.Width = w;
+        StretchModePills(w);
     }
 
     private void FitToContent()
     {
         var wa = Screen.FromControl(this).WorkingArea;
         float scale = DeviceDpi / 96f;
-        int preferredW = Math.Clamp((int)(420 * scale), 400, Math.Min(480, wa.Width - 32));
-        int preferredH = Math.Clamp((int)(720 * scale), 660, Math.Min(820, wa.Height - 48));
+        int preferredW = Math.Clamp((int)(440 * scale), 420, Math.Min(520, wa.Width - 32));
+        int preferredH = Math.Clamp((int)(780 * scale), 700, Math.Min(900, wa.Height - 48));
         ClientSize = new Size(preferredW, preferredH);
         LayoutAdaptive();
     }
@@ -583,6 +700,10 @@ internal sealed class SettingsForm : Form
         {
             _sensorTimer.Dispose();
             _batteryDebounce.Dispose();
+            _tip.Dispose();
+            _fansForm?.Dispose();
+            _extraForm?.Dispose();
+            _updatesForm?.Dispose();
         }
         base.Dispose(disposing);
     }
