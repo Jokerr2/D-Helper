@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+publish/
+publish-new/
+.vs/
+*.user
+*.suo
+*.csproj.user
+docs/probe-output.txt
+docs/probe-admin.txt
+.DS_Store
+Thumbs.db
