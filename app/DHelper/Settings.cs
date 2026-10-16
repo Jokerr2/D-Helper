@@ -611,7 +611,11 @@ namespace GHelper
             {
                 sensorTimer.Interval = this.Visible ? AppConfig.Get("sensor_timer", 2000) : 30000;
                 sensorTimer.Enabled = this.Visible;
-                if (this.Visible) RefreshSensors(true);
+                if (this.Visible)
+                {
+                    RefreshSensors(true);
+                    updateControl.CheckForUpdates();
+                }
                 return;
             }
 
@@ -1086,6 +1090,9 @@ namespace GHelper
             SetContextMenu();
             VisualiseIcon(true);
             Logger.WriteLine("Dell platform UI: Extra/FnLock/Overlay kept; Aura/GPU/Matrix hidden; Cool pill added");
+
+            // Startup update check (also re-runs when the window is shown)
+            updateControl.CheckForUpdates();
 
             // Hide Fn-Lock when this BIOS does not expose CCTK FnLock
             Task.Run(() =>
