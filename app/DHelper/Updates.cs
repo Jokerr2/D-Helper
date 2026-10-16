@@ -102,10 +102,22 @@ namespace GHelper
             labelLegendGreen.Visible = false;
             buttonRefresh.Visible = false;
 
+            string model = AppConfig.GetModelShort();
+            if (string.IsNullOrWhiteSpace(model)) model = AppConfig.GetModel();
+            string tag = controller.GetSerialNumber()?.Trim() ?? "";
+            // Dell Service Tag URLs work across Latitude / XPS / Precision / Pro / Inspiron
+            string driversUrl = string.IsNullOrEmpty(tag)
+                ? "https://www.dell.com/support/home"
+                : $"https://www.dell.com/support/home/product-support/servicetag/{Uri.EscapeDataString(tag)}/drivers";
+            string overviewUrl = string.IsNullOrEmpty(tag)
+                ? "https://www.dell.com/support/home"
+                : $"https://www.dell.com/support/home/product-support/servicetag/{Uri.EscapeDataString(tag)}/overview";
+            string modelLabel = string.IsNullOrWhiteSpace(model) ? "this Dell" : model;
+
             var drivers = new List<UpdatesController.DriverUpdate>
             {
-                new() { title = "Drivers & downloads (PC16250)", version = "Dell Support", downloadUrl = "https://www.dell.com/support/home/en-us/product-support/product/dell-pro-pc16250-laptop/drivers", categoryName = "Drivers", date = "", hardwares = [], status = 0, tip = "" },
-                new() { title = "BIOS / firmware", version = "Dell Support", downloadUrl = "https://www.dell.com/support/home/en-us/product-support/product/dell-pro-pc16250-laptop/drivers", categoryName = "BIOS", date = "", hardwares = [], status = 0, tip = "" },
+                new() { title = $"Drivers & downloads ({modelLabel})", version = "Dell Support", downloadUrl = driversUrl, categoryName = "Drivers", date = "", hardwares = [], status = 0, tip = "" },
+                new() { title = "BIOS / firmware / overview", version = "Dell Support", downloadUrl = overviewUrl, categoryName = "BIOS", date = "", hardwares = [], status = 0, tip = "" },
             };
             var tools = new List<UpdatesController.DriverUpdate>
             {
@@ -118,9 +130,10 @@ namespace GHelper
             RenderTable(tools, tableDrivers);
 
             var caps = Program.acpi.DellHal?.Capabilities;
+            string tagPart = string.IsNullOrEmpty(tag) ? "Service Tag unknown" : $"Service Tag {tag}";
             textSerial.Text = caps == null
-                ? AppConfig.GetModel()
-                : $"{caps.PrimaryBackend} | Optimizer={(caps.OptimizerAvailable ? "yes" : "no")} CCTK={(caps.CctkAvailable ? "yes" : "no")}";
+                ? $"{modelLabel} | {tagPart}"
+                : $"{modelLabel} | {tagPart} | {caps.PrimaryBackend} | Optimizer={(caps.OptimizerAvailable ? "yes" : "no")} CCTK={(caps.CctkAvailable ? "yes" : "no")}";
             textSerial.BackColor = panelBios.BackColor;
             textSerial.ForeColor = panelBios.ForeColor;
             ResumeLayout(false);

@@ -316,8 +316,12 @@ namespace GHelper
 
         private void ApplyDellSnapshot(DellExtraSnapshot snap)
         {
+            // Show only options this BIOS returned; hide unsupported CCTK features per-SKU
+            SetDellRowVisible(_dellLabIllum, _dellIllum, snap.Illum != null);
             if (_dellIllum != null && snap.Illum != null)
                 SelectCombo(_dellIllum, snap.Illum);
+
+            SetDellRowVisible(_dellLabCharge, _dellCharge, snap.Charge != null);
             if (_dellCharge != null && snap.Charge != null)
             {
                 _dellCharge.SelectedIndex = snap.Charge switch
@@ -329,12 +333,16 @@ namespace GHelper
                     _ => 0
                 };
             }
+
+            SetDellRowVisible(_dellLabWol, _dellWol, snap.Wol != null);
             if (_dellWol != null && snap.Wol != null)
                 SelectCombo(_dellWol, snap.Wol);
 
             void BindCheck(CheckBox? cb, bool? v)
             {
-                if (cb == null || v == null) return;
+                if (cb == null) return;
+                cb.Visible = v != null;
+                if (v == null) return;
                 cb.Checked = v.Value;
             }
             BindCheck(_dellUsb, snap.Usb);
@@ -342,6 +350,12 @@ namespace GHelper
             BindCheck(_dellCam, snap.Cam);
             BindCheck(_dellAutoOn, snap.AutoOn);
             BindCheck(_dellBlock, snap.Block);
+        }
+
+        private static void SetDellRowVisible(Label? lab, Control? control, bool visible)
+        {
+            if (lab != null) lab.Visible = visible;
+            if (control != null) control.Visible = visible;
         }
 
         private static int CountMissing(DellExtraSnapshot snap)
@@ -366,9 +380,9 @@ namespace GHelper
             ThemeDellControls();
 
             foreach (var c in new Control?[] { _dellIllum, _dellCharge, _dellWol, _dellUsb, _dellLid, _dellCam, _dellAutoOn, _dellBlock })
-                if (c != null) { c.Visible = true; c.Enabled = true; }
+                if (c != null) c.Enabled = true;
             foreach (var lab in new Control?[] { _dellLabIllum, _dellLabCharge, _dellLabWol })
-                if (lab != null) { lab.Visible = true; lab.Enabled = true; }
+                if (lab != null) lab.Enabled = true;
 
             if (!ProcessHelper.IsUserAdministrator())
             {
@@ -386,10 +400,10 @@ namespace GHelper
                 _dellLoading = true;
                 ApplyDellSnapshot(cached);
                 _dellLoading = false;
-                int miss = CountMissing(cached);
-                SetDellStatus(miss == 0
-                    ? "Dell features ready — change a control to apply."
-                    : $"Dell features ready ({miss} unknown — you can still change them).");
+                int shown = 8 - CountMissing(cached);
+                SetDellStatus(shown == 0
+                    ? "No Extra BIOS options reported for this laptop."
+                    : $"Dell features ready ({shown} available) — change a control to apply.");
                 return;
             }
 
@@ -420,10 +434,10 @@ namespace GHelper
 
                 ApplyDellSnapshot(snap);
                 ThemeDellControls();
-                int missing = CountMissing(snap);
-                SetDellStatus(missing == 0
-                    ? "Dell features ready — change a control to apply."
-                    : $"Dell features ready ({missing} could not be read — you can still try changing them).");
+                int shown = 8 - CountMissing(snap);
+                SetDellStatus(shown == 0
+                    ? "No Extra BIOS options reported for this laptop."
+                    : $"Dell features ready ({shown} available) — change a control to apply.");
             }
             catch (Exception ex)
             {

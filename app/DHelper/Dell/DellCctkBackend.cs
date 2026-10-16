@@ -48,19 +48,40 @@ internal sealed class DellCctkBackend
     {
         error = "";
         if (!Available) { error = "Dell Command Configure (cctk) not found"; return false; }
-        var value = mode switch
+
+        // Cross-SKU aliases: different Dell BIOS builds use different enum names
+        string[] values = mode switch
         {
-            ThermalMode.Quiet => "Quiet",
-            ThermalMode.Cool => "Cool",
-            ThermalMode.Ultra => "UltraPerformance",
-            _ => "Optimized"
+            ThermalMode.Quiet => ["Quiet", "Silent"],
+            ThermalMode.Cool => ["Cool"],
+            ThermalMode.Ultra => ["UltraPerformance", "Performance", "Ultra"],
+            _ => ["Optimized", "Balanced", "Default"]
         };
-        var (code, stdout, stderr) = CliRunner.Run(_path!, $"--ThermalManagement={value}");
-        if (code == 0) return true;
-        if (LooksSuccessful(stdout + "\n" + stderr, "ThermalManagement")) return true;
-        error = FirstUseful(stdout, stderr, $"cctk exit {code}");
+
+        string lastErr = "";
+        foreach (var value in values)
+        {
+            var (code, stdout, stderr) = CliRunner.Run(_path!, $"--ThermalManagement={value}");
+            if (code == 0 || LooksSuccessful(stdout + "\n" + stderr, "ThermalManagement"))
+                return true;
+            lastErr = FirstUseful(stdout, stderr, $"cctk exit {code}");
+            // Try next alias only when this value is unsupported
+            if (!LooksUnsupported(stdout + "\n" + stderr, value))
+            {
+                error = lastErr;
+                return false;
+            }
+        }
+        error = lastErr;
         return false;
     }
+
+    private static bool LooksUnsupported(string text, string value) =>
+        text.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("Invalid", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("is not a valid", StringComparison.OrdinalIgnoreCase) ||
+        (text.Contains(value, StringComparison.OrdinalIgnoreCase) &&
+         text.Contains("ERROR", StringComparison.OrdinalIgnoreCase));
 
     public (ChargeMode? Mode, int? Start, int? Stop) GetCharge()
     {
@@ -257,11 +278,15 @@ internal sealed class DellCctkBackend
         // Prefer assigned value — bare "Quiet" matches help/possible-values lists incorrectly
         var raw = ParseOptionValue(text, "ThermalManagement");
         if (string.IsNullOrEmpty(raw)) return null;
-        if (raw.Equals("Quiet", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Quiet;
+        if (raw.Equals("Quiet", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("Silent", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Quiet;
         if (raw.Equals("Cool", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Cool;
         if (raw.Equals("UltraPerformance", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("Performance", StringComparison.OrdinalIgnoreCase) ||
             raw.Equals("Ultra", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Ultra;
-        if (raw.Equals("Optimized", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Optimized;
+        if (raw.Equals("Optimized", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("Balanced", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("Default", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Optimized;
         return null;
     }
 

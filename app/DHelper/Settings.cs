@@ -1086,6 +1086,32 @@ namespace GHelper
             SetContextMenu();
             VisualiseIcon(true);
             Logger.WriteLine("Dell platform UI: Extra/FnLock/Overlay kept; Aura/GPU/Matrix hidden; Cool pill added");
+
+            // Hide Fn-Lock when this BIOS does not expose CCTK FnLock
+            Task.Run(() =>
+            {
+                bool? supported = Program.acpi.DellHal?.GetFnLock();
+                if (IsDisposed) return;
+                BeginInvoke(() =>
+                {
+                    if (IsDisposed) return;
+                    if (supported == null)
+                    {
+                        buttonFnLock.Visible = false;
+                        buttonOverlay.Width = buttonKeyboard.Width;
+                        buttonOverlay.Left = buttonKeyboard.Left;
+                        Logger.WriteLine("Dell FnLock: not supported on this BIOS — button hidden");
+                    }
+                    else
+                    {
+                        buttonFnLock.Visible = true;
+                        AlignFnLock();
+                        // Sync config from BIOS once so UI matches reality
+                        AppConfig.Set("fn_lock", supported.Value ? 1 : 0);
+                        VisualiseFnLock();
+                    }
+                });
+            });
         }
 
         private void InitDellCoolPill()

@@ -2,11 +2,13 @@
 
 ## Prerequisites
 
-1. **Windows 10/11** on a supported Dell (validated: Dell Pro 16 PC16250)
+1. **Windows 10/11** on a **Dell** laptop (validated example: Dell Pro 16 PC16250)
 2. **.NET 8 Desktop Runtime** (or SDK to build)
 3. At least one of:
    - [Dell Optimizer](https://www.dell.com/support) (`winget install Dell.Optimizer`)
    - [Dell Command \| Configure](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure) (`winget install Dell.CommandConfigure`)
+
+Manufacturer must report as Dell (WMI). Features your BIOS does not expose are hidden in Extra / Fn-Lock.
 
 ## Build
 

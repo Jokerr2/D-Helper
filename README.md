@@ -1,8 +1,10 @@
 # D-Helper
 
-**GPL-3.0 fork of [G-Helper](https://github.com/seerge/g-helper)** adapted for **Dell Pro 16 PC16250**.
+**GPL-3.0 fork of [G-Helper](https://github.com/seerge/g-helper)** for **Dell laptops** that have **Dell Optimizer** and/or **Dell Command | Configure**.
 
-Uses the real G-Helper UI and tray behavior. On this Dell laptop (no ASUS ATKACPI), thermal modes, battery charge limit, and Fn-Lock are driven through **Dell Optimizer** (`do-cli`) and/or **Dell Command | Configure** (`cctk`). ASUS-only features (GPU MUX, Aura, Anime Matrix, Ally, ACPI fan curves / PPT) are hidden or disabled.
+Uses the G-Helper-style UI and tray. Thermal modes, battery charge limit, Extra BIOS options, and Fn-Lock (when exposed) are driven through `do-cli` / `cctk`. ASUS-only features (GPU MUX, Aura, Anime Matrix, Ally, ACPI fan curves / PPT) are removed or hidden.
+
+Validated on **Dell Pro 16 PC16250**; designed to work on any Dell with the Dell tools installed (Latitude, XPS, Precision, Pro, Inspiron, etc.). Unsupported BIOS options are hidden automatically.
 
 > Not affiliated with ASUS, G-Helper upstream, or Dell.
 
@@ -12,24 +14,24 @@ Uses the real G-Helper UI and tray behavior. On this Dell laptop (no ASUS ATKACP
 
 This is a modified GPL work based on [seerge/g-helper](https://github.com/seerge/g-helper). If you distribute binaries, you must also provide corresponding source under GPL-3.0.
 
-## Feature matrix (PC16250)
+## Feature matrix
 
 | Area | Status |
 |---|---|
-| Silent / Balanced / Turbo (+ Cool) | Working (CCTK / Optimizer thermal) |
-| Battery charge limit | Working (CCTK `PrimaryBattChargeCfg`) |
-| Auto mode + refresh on AC/DC | Working (G-Helper auto modes + Dell apply) |
-| Tray, toast, hotkeys, Extra | Working (G-Helper UI; ASUS backlight/services hidden) |
+| Quiet / Balanced / Cool / Turbo | Working when CCTK/Optimizer exposes thermal |
+| Battery charge limit | Working (`PrimaryBattChargeCfg` via CCTK) |
+| Auto mode + refresh on AC/DC | Working |
+| Tray, toast, hotkeys, Extra | Working; Extra rows hide if BIOS lacks the option |
 | Sensors + metrics overlay | Working |
-| Fn-Lock | Working when CCTK exposes it |
-| Fans + Power | Windows power plan; fan curves / PPT / undervolt **disabled** |
-| GPU Eco / Ultimate / Optimized | **Hidden** (iGPU-only) |
-| RGB / Anime Matrix / peripherals | **Hidden** |
-| BIOS / driver Updates | Dell Support links for PC16250 |
+| Fn-Lock | Working when CCTK exposes `FnLock` |
+| Fans + Power | Windows power plan; ASUS fan curves / PPT **disabled** |
+| GPU Eco / Ultimate / Optimized | **Hidden** |
+| RGB / Anime Matrix / peripherals | **Removed** |
+| BIOS / driver Updates | Dell Support links for **this** Service Tag |
 
 ## Requirements
 
-- Windows 10/11, run **as Administrator** (UAC)
+- Windows 10/11 **Dell** laptop, run **as Administrator** (UAC)
 - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Dell Optimizer](https://www.dell.com/support) and/or [Dell Command \| Configure](https://www.dell.com/support/kbdoc/en-us/000178000/dell-command-configure)
 

@@ -88,7 +88,9 @@ namespace GHelper
             if (!acpi.IsConnected())
             {
                 MessageBox.Show(
-                    "D-Helper needs Dell Optimizer and/or Dell Command | Configure.\n\nInstall them from Dell Support, then run D-Helper as Administrator.",
+                    AppConfig.IsDell()
+                        ? "D-Helper needs Dell Optimizer and/or Dell Command | Configure.\n\nInstall them from Dell Support for this laptop, then run D-Helper as Administrator."
+                        : "D-Helper only runs on Dell laptops with Dell Optimizer and/or Dell Command | Configure installed.",
                     "D-Helper — Startup Error",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);

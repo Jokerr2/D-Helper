@@ -87,10 +87,10 @@ internal sealed class DellOptimizerBackend
 
     private static ThermalMode? ParseThermal(string text)
     {
-        if (Regex.IsMatch(text, @"\bQuiet\b", RegexOptions.IgnoreCase)) return ThermalMode.Quiet;
+        if (Regex.IsMatch(text, @"\bQuiet\b|\bSilent\b", RegexOptions.IgnoreCase)) return ThermalMode.Quiet;
         if (Regex.IsMatch(text, @"\bCool\b", RegexOptions.IgnoreCase)) return ThermalMode.Cool;
-        if (Regex.IsMatch(text, @"\bUltra\b", RegexOptions.IgnoreCase)) return ThermalMode.Ultra;
-        if (Regex.IsMatch(text, @"\bOptimized\b", RegexOptions.IgnoreCase)) return ThermalMode.Optimized;
+        if (Regex.IsMatch(text, @"\bUltraPerformance\b|\bPerformance\b|\bUltra\b", RegexOptions.IgnoreCase)) return ThermalMode.Ultra;
+        if (Regex.IsMatch(text, @"\bOptimized\b|\bBalanced\b|\bDefault\b", RegexOptions.IgnoreCase)) return ThermalMode.Optimized;
         return null;
     }
 

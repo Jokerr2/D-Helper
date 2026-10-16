@@ -316,23 +316,30 @@ public class AsusACPI
             Logger.WriteLine($"Can't connect to ACPI: {ex.Message}");
         }
 
-        // Dell Pro / non-ASUS: bridge Optimizer + CCTK when ATKACPI is absent
+        // Any Dell laptop: bridge Optimizer + CCTK when ATKACPI is absent and WMI/model says Dell
         if (!_connected)
         {
             try
             {
-                var dell = new CompositeLaptopHal();
-                dell.Probe();
-                if (dell.Capabilities.ThermalControl || dell.Capabilities.BatteryControl)
+                if (!AppConfig.IsDell())
                 {
-                    _dellHal = dell;
-                    _connected = true;
-                    Logger.WriteLine($"Dell bridge: {dell.Capabilities.PrimaryBackend} (Optimizer={dell.Capabilities.OptimizerAvailable}, CCTK={dell.Capabilities.CctkAvailable})");
+                    Logger.WriteLine("Dell bridge: skipped (manufacturer/model is not Dell)");
                 }
                 else
                 {
-                    Logger.WriteLine("Dell bridge: no Optimizer/CCTK backends found");
-                    dell.Dispose();
+                    var dell = new CompositeLaptopHal();
+                    dell.Probe();
+                    if (dell.Capabilities.ThermalControl || dell.Capabilities.BatteryControl)
+                    {
+                        _dellHal = dell;
+                        _connected = true;
+                        Logger.WriteLine($"Dell bridge: {dell.Capabilities.PrimaryBackend} (Optimizer={dell.Capabilities.OptimizerAvailable}, CCTK={dell.Capabilities.CctkAvailable}) model={AppConfig.GetModel()}");
+                    }
+                    else
+                    {
+                        Logger.WriteLine("Dell bridge: no Optimizer/CCTK backends found");
+                        dell.Dispose();
+                    }
                 }
             }
             catch (Exception ex)
