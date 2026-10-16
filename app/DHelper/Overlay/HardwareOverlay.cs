@@ -79,7 +79,7 @@ namespace GHelper.Overlay
         // Full:     fps | temp + fan RPM              | chart | power | usage% | bar | bat% + rate
         // Complete: fps | name | temp + fan RPM       | chart | power | usage% | bar | mem GB | bar | bat% + rate
         //
-        // The battery column only appears while the device runs on battery (always on Ally).
+        // The battery column only appears while the device runs on battery.
         //
         // Click on the overlay cycles Light → Default → Full → Complete → Light.
         //
@@ -199,7 +199,6 @@ namespace GHelper.Overlay
         private bool _showFps, _showTemp, _showFans, _showChart, _showPower, _showUsage, _showRam, _showBattery;
         private bool _onBattery;
         private int _overlayBattery = -1;
-        private static readonly bool _isAlly = AppConfig.IsAlly();
         private bool _hidden;
         private int _shownPid;
         private bool _fgDesktop;
@@ -465,7 +464,7 @@ namespace GHelper.Overlay
 
             if (_showBattery)
             {
-                bool onBattery = _isAlly || _overlayBattery == 1 || SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
+                bool onBattery = _overlayBattery == 1 || SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
                 if (onBattery != _onBattery)
                 {
                     _onBattery = onBattery;
@@ -1071,7 +1070,7 @@ namespace GHelper.Overlay
             _scalePercent = Math.Clamp(AppConfig.Get("overlay_scale_percent", 100), MinScalePercent, MaxScalePercent);
             ApplyColors();
             ApplyPreset(_mode);
-            _onBattery = _isAlly || _overlayBattery == 1 || SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
+            _onBattery = _overlayBattery == 1 || SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
             ApplySensorFlags();
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             HardwareControl.ResetCPUPowerCounter();

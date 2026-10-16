@@ -1,7 +1,6 @@
 ﻿using GHelper.Display;
 using GHelper.Gpu.NVidia;
 using GHelper.Helpers;
-using GHelper.USB;
 using System.Diagnostics;
 
 namespace GHelper.Gpu
@@ -68,8 +67,6 @@ namespace GHelper.Gpu
 
             AppConfig.Set("gpu_mode", gpuMode);
             settings.VisualiseGPUMode(gpuMode);
-
-            Aura.CustomRGB.ApplyGPUColor(gpuMode);
 
             CheckGpuError();
 
@@ -301,55 +298,7 @@ namespace GHelper.Gpu
 
         public void ToggleXGM(bool silent = false)
         {
-
-            Task.Run(async () =>
-            {
-                settings.LockGPUModes();
-
-                if (Program.acpi.DeviceGet(AsusACPI.GPUXG) == 1)
-                {
-                    XGM.Reset();
-                    HardwareControl.KillGPUApps();
-
-                    if (silent)
-                    {
-                        Program.acpi.DeviceSet(AsusACPI.GPUXG, 0, "GPU XGM");
-                        await Task.Delay(TimeSpan.FromSeconds(15));
-                    }
-                    else
-                    {
-                        DialogResult dialogResult = settings.ShowMessage("Did you close all applications running on XG Mobile?", "Disabling XG Mobile", MessageBoxButtons.YesNo);
-                        if (dialogResult == DialogResult.Yes)
-                        {
-                            Program.acpi.DeviceSet(AsusACPI.GPUXG, 0, "GPU XGM");
-                            await Task.Delay(TimeSpan.FromSeconds(15));
-                            HardwareControl.RecreateGpuControl();
-                        }
-                    }
-                }
-                else
-                {
-
-                    if (AppConfig.Is("xgm_special"))
-                        Program.acpi.DeviceSet(AsusACPI.GPUXG, 0x101, "GPU XGM");
-                    else
-                        Program.acpi.DeviceSet(AsusACPI.GPUXG, 1, "GPU XGM");
-
-                    XGM.Init();
-
-                    await Task.Delay(TimeSpan.FromSeconds(15));
-                    await HardwareControl.RecreateGpuControlWithRetry(6, 5);
-
-                    if (AppConfig.IsApplyFans())
-                        XGM.SetFan(AppConfig.GetFanConfig(AsusFan.XGM));
-
-                }
-
-                settings.Invoke(delegate
-                {
-                    InitGPUMode();
-                });
-            });
+            // XG Mobile not supported on Dell-only builds
         }
 
         public void KillGPUApps()

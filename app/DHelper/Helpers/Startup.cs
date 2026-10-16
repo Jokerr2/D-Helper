@@ -145,7 +145,7 @@ public class Startup
 
         using (TaskDefinition td = TaskService.Instance.NewTask())
         {
-            td.RegistrationInfo.Description = "G-Helper Charge Limit";
+            td.RegistrationInfo.Description = "D-Helper Charge Limit";
             td.Triggers.Add(new BootTrigger());
             td.Triggers.Add(new EventTrigger
             {
@@ -180,7 +180,7 @@ public class Startup
         using (TaskDefinition td = TaskService.Instance.NewTask())
         {
 
-            td.RegistrationInfo.Description = "G-Helper Auto Start";
+            td.RegistrationInfo.Description = "D-Helper Auto Start";
             td.Triggers.Add(new LogonTrigger { UserId = WindowsIdentity.GetCurrent().Name, Delay = TimeSpan.FromSeconds(1) });
             // ConsoleConnect = fast user switch back; no SessionUnlock, it fires on every unlock
             td.Triggers.Add(new SessionStateChangeTrigger { StateChange = TaskSessionStateChangeType.ConsoleConnect, UserId = WindowsIdentity.GetCurrent().Name, Delay = TimeSpan.FromSeconds(1) });

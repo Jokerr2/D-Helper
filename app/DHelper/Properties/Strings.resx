@@ -163,7 +163,7 @@
     <value>App already running</value>
   </data>
   <data name="AppAlreadyRunningText" xml:space="preserve">
-    <value>G-Helper is already running. Check system tray for an icon.</value>
+    <value>D-Helper is already running. Check system tray for an icon.</value>
   </data>
   <data name="Apply" xml:space="preserve">
     <value>Apply</value>
@@ -726,7 +726,7 @@ Do you still want to continue?</value>
     <value>One Zone</value>
   </data>
   <data name="OpenGHelper" xml:space="preserve">
-    <value>Open G-Helper window</value>
+    <value>Open D-Helper window</value>
   </data>
   <data name="OptimalDisplayBrightness" xml:space="preserve">
     <value>Optimal Display Brightness</value>

@@ -1,3 +1,4 @@
+using GHelper.Battery;
 using GHelper.Dell;
 using GHelper.Helpers;
 using GHelper.UI;
@@ -555,6 +556,7 @@ namespace GHelper
             _dellCharge.Enabled = true;
             if (ok && verified != null)
             {
+                BatteryControl.SetDellChargeMode(verified.Value);
                 _dellLoading = true;
                 _dellCharge.SelectedIndex = verified switch
                 {

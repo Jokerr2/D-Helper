@@ -1,5 +1,4 @@
-﻿using GHelper.Helpers;
-using Microsoft.Win32;
+﻿using GHelper.Dell;
 using System.Diagnostics;
 
 namespace GHelper.Battery
@@ -9,6 +8,7 @@ namespace GHelper.Battery
 
         static bool _chargeFull = AppConfig.Is("charge_full");
         static int _applyGeneration;
+        static long _lastDellBatteryApply;
 
         public static bool chargeFull
         {
@@ -23,6 +23,20 @@ namespace GHelper.Battery
             }
         }
 
+        /// <summary>Persisted BIOS charge policy for Dell (Standard / Adaptive / Custom / …).</summary>
+        public static ChargeMode GetDellChargeMode()
+        {
+            var s = AppConfig.GetString("dell_charge_mode", "");
+            if (!string.IsNullOrEmpty(s) && Enum.TryParse(s, true, out ChargeMode mode))
+                return mode;
+            return ChargeMode.Custom;
+        }
+
+        public static void SetDellChargeMode(ChargeMode mode)
+        {
+            AppConfig.Set("dell_charge_mode", mode.ToString());
+        }
+
         public static void ToggleBatteryLimitFull()
         {
             if (chargeFull) SetBatteryChargeLimit();
@@ -32,6 +46,8 @@ namespace GHelper.Battery
         public static void SetBatteryLimitFull()
         {
             chargeFull = true;
+            if (Program.acpi.IsDellPlatform)
+                SetDellChargeMode(ChargeMode.Custom);
             ApplyLimitAsync(100, full: true);
             Program.settingsForm.VisualiseBatteryFull();
         }
@@ -45,25 +61,24 @@ namespace GHelper.Battery
 
         public static void AutoBattery(bool init = false)
         {
+            // Dell CCTK is slow — skip duplicate AutoBattery within 60s (boot Charge + resume + monitor-on)
+            if (Program.acpi.IsDellPlatform)
+            {
+                long now = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                if (Math.Abs(now - _lastDellBatteryApply) < 60000)
+                {
+                    Logger.WriteLine("AutoBattery skipped (Dell debounce)");
+                    return;
+                }
+                _lastDellBatteryApply = now;
+            }
+
             if (chargeFull && !init) SetBatteryLimitFull();
             else SetBatteryChargeLimit();
         }
 
-        public static void SetAsusChargeLimit(int value)
-        {
-            if (Program.acpi.IsDellPlatform) return;
-            if (!ProcessHelper.IsUserAdministrator()) return;
-            const string keyPath = @"SOFTWARE\ASUS\ASUS System Control Interface\AsusOptimization\ASUS Keyboard Hotkeys";
-            try
-            {
-                using var key = Registry.LocalMachine.OpenSubKey(keyPath, writable: true);
-                key?.SetValue("ChargingRate", value, RegistryValueKind.DWord);
-            }
-            catch (Exception ex)
-            {
-                Logger.WriteLine($"Failed to set ChargingRate: {ex.Message}");
-            }
-        }
+        /// <summary>ASUS Optimization registry hook — removed for Dell-only.</summary>
+        public static void SetAsusChargeLimit(int value) { }
 
         public static void SetBatteryChargeLimit(int setLimit = -1)
         {
@@ -71,17 +86,12 @@ namespace GHelper.Battery
             if (limit < 0) limit = AppConfig.Get("charge_limit");
             if (limit < 40 || limit > 100) return;
 
-            if (!Program.acpi.IsDellPlatform && AppConfig.IsChargeLimit6080())
-            {
-                if (limit > 85) limit = 100;
-                else if (limit >= 80) limit = 80;
-                else if (limit < 60) limit = 60;
-            }
-
-            if (setLimit > 0) SetAsusChargeLimit(limit);
-
             AppConfig.Set("charge_limit", limit);
             chargeFull = false;
+
+            // Explicit slider value → Custom charge policy (do not wipe Adaptive/etc from AutoBattery)
+            if (setLimit > 0)
+                SetDellChargeMode(ChargeMode.Custom);
 
             // Optimistic UI first so the slider/label never desync while CLI runs
             try { Program.settingsForm?.VisualiseBattery(limit); } catch { /* form not ready */ }
@@ -92,17 +102,11 @@ namespace GHelper.Battery
         static void ApplyLimitAsync(int limit, bool full)
         {
             int gen = Interlocked.Increment(ref _applyGeneration);
-            if (Program.acpi.IsDellPlatform)
+            Task.Run(() =>
             {
-                Task.Run(() =>
-                {
-                    if (gen != _applyGeneration) return;
-                    Program.acpi.DeviceSet(AsusACPI.BatteryLimit, limit, full ? "BatteryFull" : "BatteryLimit");
-                });
-                return;
-            }
-
-            Program.acpi.DeviceSet(AsusACPI.BatteryLimit, limit, full ? "BatteryFull" : "BatteryLimit");
+                if (gen != _applyGeneration) return;
+                Program.acpi.DeviceSet(AsusACPI.BatteryLimit, limit, full ? "BatteryFull" : "BatteryLimit");
+            });
         }
 
         public static void BatteryReport()

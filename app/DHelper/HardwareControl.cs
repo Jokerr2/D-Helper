@@ -57,7 +57,6 @@ public static class HardwareControl
     static long lastUpdate;
 
     static bool isPZ13 = AppConfig.IsPZ13();
-    static bool isAlly = AppConfig.IsAlly();
     static bool isAMDiGPU = AppConfig.IsAMDiGPU();
 
     static bool _chargeWatt = AppConfig.Is("charge_watt");
@@ -323,34 +322,6 @@ public static class HardwareControl
     public static void ReadBatteryState()
     {
         var now = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-
-        if (isAlly)
-        {
-            try
-            {
-                decimal? discharge = Program.acpi.GetBatteryDischarge();
-                if (discharge is not null)
-                {
-                    batteryRate = Math.Abs(discharge.Value) < 1.5m ? 0 : discharge;
-
-                    // Capacity from cached power manager state is sufficient
-                    var batteryState = GetNativeBatteryState();
-                    if (batteryState.HasValue)
-                    {
-                        chargeCapacity = batteryState.Value.RemainingCapacity;
-
-                        if (fullCapacity is null or 0 && batteryState.Value.MaxCapacity > 0)
-                            fullCapacity = batteryState.Value.MaxCapacity;
-                    }
-                    FormatBatteryCharge();
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Battery Reading: " + ex.Message);
-            }
-        }
 
         if (Math.Abs(now - _lastBatteryRead) < 5000)
         {

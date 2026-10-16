@@ -254,10 +254,14 @@ internal sealed class DellCctkBackend
 
     private static ThermalMode? ParseThermal(string text)
     {
-        if (Regex.IsMatch(text, @"Quiet", RegexOptions.IgnoreCase)) return ThermalMode.Quiet;
-        if (Regex.IsMatch(text, @"Cool", RegexOptions.IgnoreCase)) return ThermalMode.Cool;
-        if (Regex.IsMatch(text, @"UltraPerformance|Ultra", RegexOptions.IgnoreCase)) return ThermalMode.Ultra;
-        if (Regex.IsMatch(text, @"Optimized", RegexOptions.IgnoreCase)) return ThermalMode.Optimized;
+        // Prefer assigned value — bare "Quiet" matches help/possible-values lists incorrectly
+        var raw = ParseOptionValue(text, "ThermalManagement");
+        if (string.IsNullOrEmpty(raw)) return null;
+        if (raw.Equals("Quiet", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Quiet;
+        if (raw.Equals("Cool", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Cool;
+        if (raw.Equals("UltraPerformance", StringComparison.OrdinalIgnoreCase) ||
+            raw.Equals("Ultra", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Ultra;
+        if (raw.Equals("Optimized", StringComparison.OrdinalIgnoreCase)) return ThermalMode.Optimized;
         return null;
     }
 

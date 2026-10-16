@@ -1,10 +1,6 @@
 using GHelper.Display;
 using GHelper.Helpers;
 using GHelper.Mode;
-using GHelper.Peripherals;
-using GHelper.Peripherals.Keyboard;
-using GHelper.Peripherals.Mouse;
-using GHelper.USB;
 using Microsoft.Win32;
 using System.Diagnostics;
 using System.Management;
@@ -79,7 +75,6 @@ namespace GHelper.Input
             if (backlightActivity && iddle.TotalSeconds > kb_timeout)
             {
                 backlightActivity = false;
-                Aura.ApplyBrightness(0, "Timeout");
             }
 
             if (!backlightActivity && iddle.TotalSeconds < kb_timeout)
@@ -118,7 +113,6 @@ namespace GHelper.Input
         public static void InitFNLock()
         {
             if (!IsHardwareFnLock()) return;
-            AsusHid.InitInput();
             HardwareFnLock(AppConfig.Is("fn_lock"));
         }
 
@@ -179,7 +173,6 @@ namespace GHelper.Input
                 hook.RegisterHotKey(keyModifierAlt, keyProfile2);
                 hook.RegisterHotKey(keyModifierAlt, keyProfile3);
                 hook.RegisterHotKey(keyModifierAlt, keyProfile4);
-                hook.RegisterHotKey(keyModifierAlt, keyXGM);
 
                 hook.RegisterHotKey(ModifierKeys.Control, Keys.VolumeDown);
                 hook.RegisterHotKey(ModifierKeys.Control, Keys.VolumeUp);
@@ -190,20 +183,10 @@ namespace GHelper.Input
 
             if (keyOverlay != Keys.None) hook.RegisterHotKey(keyModifierAlt, keyOverlay);
 
-            if (!AppConfig.IsZ13() && !AppConfig.IsAlly() && !AppConfig.IsVivoZenPro())
+            if (!AppConfig.IsZ13() && !AppConfig.IsVivoZenPro())
             {
                 if (actionM1 is not null && actionM1.Length > 0 && !MKeyControl.IsFirmware("m1")) hook.RegisterHotKey(ModifierKeys.NoRepeat, Keys.VolumeDown);
                 if (actionM2 is not null && actionM2.Length > 0 && !MKeyControl.IsFirmware("m2")) hook.RegisterHotKey(ModifierKeys.NoRepeat, Keys.VolumeUp);
-            }
-
-            if (AppConfig.IsAlly())
-            {
-                hook.RegisterHotKey(keyModifierAlt, Keys.F1);
-                hook.RegisterHotKey(keyModifierAlt, Keys.F2);
-                hook.RegisterHotKey(keyModifierAlt, Keys.F3);
-                hook.RegisterHotKey(keyModifierAlt, Keys.F4);
-                hook.RegisterHotKey(keyModifierAlt, Keys.F6);
-                hook.RegisterHotKey(keyModifierAlt, Keys.F9);
             }
 
             // FN-Lock group
@@ -220,25 +203,6 @@ namespace GHelper.Input
                 hook.RegisterHotKey(ModifierKeys.None, Keys.Down);
             }
 
-            foreach (ushort code in GetActiveMouseComboCarriers())
-                hook.RegisterHotKey(ModifierKeys.None, Keys.F13 + (code - 0x0068));
-
-            for (int slot = 0; slot < AsusKeyboard.LaunchSlots; slot++)
-                if (AsusKeyboard.LaunchCommand(slot).Length > 0)
-                    hook.RegisterHotKey(ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt, Keys.F1 + slot);
-
-        }
-
-        private static IEnumerable<ushort> GetActiveMouseComboCarriers()
-        {
-            var seen = new HashSet<ushort>();
-            foreach (var m in PeripheralsProvider.SnapshotMice())
-            {
-                if (!m.HasButtonBindings() || m.ButtonBindings is null) continue;
-                foreach (ushort code in m.ButtonBindings)
-                    if (AsusMouse.CombosByCode.ContainsKey(code) && seen.Add(code))
-                        yield return code;
-            }
         }
 
 
@@ -338,29 +302,8 @@ namespace GHelper.Input
 
             Logger.WriteLine(e.Key.ToString() + " " + e.Modifier.ToString());
 
-            if (e.Modifier == (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)
-                && e.Key >= Keys.F1 && e.Key < Keys.F1 + AsusKeyboard.LaunchSlots)
-            {
-                string command = AsusKeyboard.LaunchCommand(e.Key - Keys.F1);
-                if (command.Length > 0)
-                {
-                    LaunchProcess(command);
-                    return;
-                }
-            }
-
             if (e.Modifier == ModifierKeys.None)
             {
-                if (e.Key >= Keys.F13 && e.Key <= Keys.F24)
-                {
-                    ushort code = (ushort)(0x68 + (e.Key - Keys.F13));
-                    if (AsusMouse.CombosByCode.TryGetValue(code, out var combo))
-                    {
-                        RunKeyCommand(combo.ResolveCommand(), launchOnNoKeys: false);
-                        return;
-                    }
-                }
-
                 if (AppConfig.NoMKeys())
                 {
                     switch (e.Key)
@@ -516,7 +459,6 @@ namespace GHelper.Input
                 if (e.Key == keyProfile2) modeControl.SetPerformanceMode(2, true);
                 if (e.Key == keyProfile3) modeControl.SetPerformanceMode(3, true);
                 if (e.Key == keyProfile4) modeControl.SetPerformanceMode(4, true);
-                if (e.Key == keyXGM) Program.settingsForm.gpuControl.ToggleXGM(true);
                 if (e.Key == keyOverlay) Program.settingsForm.BeginInvoke(() => Program.settingsForm.ToggleOverlay(true));
 
                 switch (e.Key)
@@ -526,12 +468,6 @@ namespace GHelper.Input
                         break;
                     case Keys.F2:
                         SetBrightness(true);
-                        break;
-                    case Keys.F3:
-                        Program.settingsForm.gpuControl.ToggleXGM(true);
-                        break;
-                    case Keys.F4:
-                        Program.settingsForm.BeginInvoke(Program.settingsForm.allyControl.ToggleModeHotkey);
                         break;
                     case Keys.F6:
                         ToggleTouchScreen();
@@ -543,9 +479,6 @@ namespace GHelper.Input
                     case Keys.F8:
                         if (AppConfig.IsDUO()) SetScreenpad(10);
                         else SetBrightnessDimming(10);
-                        break;
-                    case Keys.F9:
-                        Program.settingsForm.BeginInvoke(Program.settingsForm.allyControl.ToggleFPSLimit, true);
                         break;
                     case Keys.F13:
                         ToggleScreenRate();
@@ -665,7 +598,6 @@ namespace GHelper.Input
                     Program.toast.RunToast(miniledName, miniledName == Properties.Strings.OneZone ? ToastIcon.BrightnessDown : ToastIcon.BrightnessUp);
                     break;
                 case "aura":
-                    Program.settingsForm.BeginInvoke(Program.settingsForm.CycleAuraMode, Control.ModifierKeys == Keys.Shift ? -1 : 1);
                     break;
                 case "visual":
                     Program.settingsForm.BeginInvoke(Program.settingsForm.CycleVisualMode, Control.ModifierKeys == Keys.Shift ? -1 : 1);
@@ -714,7 +646,6 @@ namespace GHelper.Input
                     LaunchProcess("calc");
                     break;
                 case "controller":
-                    Program.settingsForm.BeginInvoke(Program.settingsForm.allyControl.ToggleModeHotkey);
                     break;
                 case "touchscreen":
                     ToggleTouchScreen();
@@ -741,7 +672,6 @@ namespace GHelper.Input
 
         static void MicMuteLED(bool muted)
         {
-            if (AppConfig.IsDUO()) AsusHid.WriteInput([AsusHid.INPUT_ID, 0xD0, 0x7C, muted ? (byte)0x01 : (byte)0x00], "USB MicmuteLed");
         }
 
         static void ToggleTouchScreen()
@@ -789,14 +719,7 @@ namespace GHelper.Input
 
         static void ToggleTouchpad()
         {
-            if (AppConfig.IsROG())
-            {
-                AsusHid.WriteInput([AsusHid.INPUT_ID, 0xF4, 0x6B], "USB Touchpad");
-            } else
-            {
-                KeyboardHook.KeyKeyKeyPress(Keys.LWin, Keys.LControlKey, Keys.F24, 50, 50);
-            }
-
+            KeyboardHook.KeyKeyKeyPress(Keys.LWin, Keys.LControlKey, Keys.F24, 50, 50);
         }
 
         static void SleepEvent()
@@ -818,6 +741,12 @@ namespace GHelper.Input
         public static bool IsHardwareFnLock()
         {
             if (AppConfig.IsHardwareFnLock()) return true;
+            // Dell Fn-Lock is applied via CCTK in ToggleFnLock — skip DeviceGet probe (~13s) on lid-open
+            if (Program.acpi.IsDellPlatform)
+            {
+                _fnLock = false;
+                return false;
+            }
             if (_fnLock is null)
             {
                 var fnLockStatus = Program.acpi.DeviceGet(AsusACPI.FnLock);
@@ -830,7 +759,6 @@ namespace GHelper.Input
         public static void HardwareFnLock(bool fnLock)
         {
             Program.acpi.DeviceSet(AsusACPI.FnLock, fnLock ^ AppConfig.IsInvertedFNLock() ? 1 : 0, "FnLock");
-            AsusHid.WriteInput([AsusHid.INPUT_ID, 0xD0, 0x4E, fnLock ? (byte)0x00 : (byte)0x01], "USB FnLock");
         }
 
         public static void ToggleFnLock()
@@ -898,7 +826,6 @@ namespace GHelper.Input
             var tentState = GetTentState();
             if (tentState < 0) return;
             tentMode = tentState > 0;
-            Aura.ApplyBrightness(tentMode ? 0 : GetBacklight(), "Tent");
         }
 
         static void HandleEvent(int EventID)
@@ -910,46 +837,8 @@ namespace GHelper.Input
                 return;
             }
 
-            // The ROG Ally uses different M-key codes.
-            // We'll special-case the translation of those.
-            if (AppConfig.IsAlly())
+            switch (EventID)
             {
-                switch (EventID)
-                {
-
-                    // This is both the M1 and M2 keys.
-                    // There's a way to differentiate, apparently, but it isn't over USB or any other obvious protocol.
-                    case 165:
-                        Program.settingsForm.BeginInvoke(() => Program.hardwareOverlay?.SetDragKey(true));
-                        KeyProcess("paddle");
-                        return;
-                    case 0:
-                        Program.settingsForm.BeginInvoke(() => Program.hardwareOverlay?.SetDragKey(false));
-                        return;
-                    // The Command Center ("play-looking") button below the select key.
-                    case 166:
-                        KeyProcess("cc");
-                        return;
-                    // The M4/ROG key.
-                    case 56:
-                    case 147:
-                        KeyProcess("m4");
-                        return;
-                    case 162:
-                        OnScreenKeyboard.Show();
-                        return;
-                    case 124:
-                        KeyProcess("m3");
-                        return;
-
-                }
-            }
-            // All other devices seem to use the same HID key-codes,
-            // so we can process them all the same.
-            else
-            {
-                switch (EventID)
-                {
                     case 95:     // Z13 Side button
                         KeyProcess("m4");
                         return;
@@ -975,7 +864,6 @@ namespace GHelper.Input
                         modeControl.CyclePerformanceMode(Control.ModifierKeys == Keys.Shift);
                         return;
                     case 178:   // FN+LEFT ARROW / FN + F4
-                        Program.settingsForm.BeginInvoke(Program.settingsForm.CycleAuraMode, -1);
                         return;
                     case 179:   // FN+F4
                         KeyProcess("fnf4");
@@ -1010,7 +898,6 @@ namespace GHelper.Input
                             SetBrightnessDimming(10);
                         }
                         break;
-                }
             }
 
             if (!AsusService.IsAsusOptimizationRunning())
@@ -1027,7 +914,6 @@ namespace GHelper.Input
                     if (Control.ModifierKeys == Keys.Shift)
                     {
                         if (AppConfig.IsDUO()) SetScreenpad(-10);
-                        else if (Program.settingsForm.matrixControl.IsValid) Program.settingsForm.BeginInvoke(Program.settingsForm.CycleMatrix, -1);
                         else SetBacklight(-1);
                     }
                     else if (Control.ModifierKeys == Keys.Control && AppConfig.IsOLED())
@@ -1043,7 +929,6 @@ namespace GHelper.Input
                     if (Control.ModifierKeys == Keys.Shift)
                     {
                         if (AppConfig.IsDUO()) SetScreenpad(10);
-                        else if (Program.settingsForm.matrixControl.IsValid) Program.settingsForm.BeginInvoke(Program.settingsForm.CycleMatrix, 1);
                         else SetBacklight(1);
                     }
                     else if (Control.ModifierKeys == Keys.Control && AppConfig.IsOLED())
@@ -1140,30 +1025,18 @@ namespace GHelper.Input
                 }
             }
 
-            Aura.Init();
-
-            if (!AppConfig.Is("skip_aura"))
-            {
-                Aura.ApplyPower();
-                SetBacklightAuto();
-                Aura.ApplyAura();
-            } else
-            {
-                Logger.WriteLine("Skipping Aura");
-            }
+            SetBacklightAuto();
         }
 
 
         public static void SetBacklightAuto()
         {
             if (lidClose || tentMode) return;
-            Aura.ApplyBrightness(GetBacklight(), "Auto");
             backlightActivity = true;
         }
 
         public static void StartupBacklight()
         {
-            Aura.DirectBrightness(GetBacklight(), "Startup");
         }
 
         public static void SetBacklight(int delta, bool force = false)
@@ -1187,11 +1060,6 @@ namespace GHelper.Input
 
             var extraForm = Program.settingsForm.extraForm;
             if (extraForm != null && extraForm.Text != "") extraForm.VisualiseBacklight(backlight);
-
-            if (force || !AsusService.IsAsusOptimizationRunning())
-            {
-                Aura.ApplyBrightness(backlight, "HotKey");
-            }
 
             if (!AsusService.IsOSDRunning())
             {
@@ -1416,7 +1284,6 @@ namespace GHelper.Input
                 if (AppConfig.NoWMI()) return;
 
                 if (EventID == 123) Program.OnChargerEvent();
-                if (EventID == 186 || EventID == 194) Program.settingsForm.VisualizeXGM();
 
                 HandleEvent(EventID);
             }

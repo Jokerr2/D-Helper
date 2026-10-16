@@ -109,6 +109,7 @@ public sealed class CompositeLaptopHal : ILaptopHal
             if (_cctk.SetChargeMode(mode, customStart, customStop, out error))
             {
                 CacheCharge(mode, customStart, customStop);
+                InvalidateExtraSnapshot();
                 return true;
             }
             error = DellErrors.Humanize(error);
@@ -121,6 +122,7 @@ public sealed class CompositeLaptopHal : ILaptopHal
             if (_optimizer.SetChargeMode(mode, customStart, customStop, out error))
             {
                 CacheCharge(mode, customStart, customStop);
+                InvalidateExtraSnapshot();
                 return true;
             }
             error = DellErrors.Humanize(error);
@@ -136,8 +138,23 @@ public sealed class CompositeLaptopHal : ILaptopHal
     private void CacheCharge(ChargeMode mode, int? start, int? stop)
     {
         _cachedCharge = mode;
+        if (mode != ChargeMode.Custom)
+        {
+            _cachedStart = null;
+            _cachedStop = null;
+        }
         if (start != null) _cachedStart = start;
         if (stop != null) _cachedStop = stop;
+    }
+
+    /// <summary>Drop Extra UI cache so the next open re-reads after battery/charge changes.</summary>
+    public void InvalidateExtraSnapshot()
+    {
+        lock (_extraGate)
+        {
+            _extraSnap = null;
+            _extraSnapAt = DateTime.MinValue;
+        }
     }
 
     public bool? GetFnLock() => _cctk.Available ? _cctk.GetFnLock() : null;
@@ -277,7 +294,13 @@ public sealed class CompositeLaptopHal : ILaptopHal
                 var charge = chargeRaw != null
                     ? DellCctkBackend.ParseChargeText("PrimaryBattChargeCfg=" + chargeRaw)
                     : (Mode: (ChargeMode?)null, Start: (int?)null, Stop: (int?)null);
-                if (charge.Mode != null) CacheCharge(charge.Mode.Value, charge.Start, charge.Stop);
+                if (charge.Mode != null)
+                {
+                    CacheCharge(charge.Mode.Value, charge.Start, charge.Stop);
+                    // Seed persisted policy on first successful BIOS read
+                    if (string.IsNullOrEmpty(AppConfig.GetString("dell_charge_mode", "")))
+                        AppConfig.Set("dell_charge_mode", charge.Mode.Value.ToString());
+                }
 
                 var snap = new DellExtraSnapshot(illum, charge.Mode, wol, usb, lid, cam, autoOn, block, NeededAdmin);
                 lock (_extraGate)

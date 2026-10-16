@@ -11,3 +11,5 @@ docs/probe-output.txt
 docs/probe-admin.txt
 .DS_Store
 Thumbs.db
+
+docs/probe-*.txt

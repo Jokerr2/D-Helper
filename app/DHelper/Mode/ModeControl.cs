@@ -1,7 +1,6 @@
 using GHelper.Dell;
 using GHelper.Gpu.NVidia;
 using GHelper.Helpers;
-using GHelper.USB;
 using PawnIO;
 
 namespace GHelper.Mode
@@ -179,14 +178,20 @@ namespace GHelper.Mode
 
                         if (settings.IsHandleCreated)
                         {
+                            bool showToast = notify;
                             settings.BeginInvoke(() =>
                             {
                                 settings.ShowMode(showId);
                                 SetModeLabel();
-                                // Success toast is shown immediately via notify=true on click;
-                                // only toast again here on failure after CCTK returns.
-                                if (!ok)
+                                if (showToast)
+                                {
+                                    if (ok) Toast();
+                                    else Program.toast.RunToast("Could not set mode — run D-Helper as Administrator?");
+                                }
+                                else if (!ok)
+                                {
                                     Program.toast.RunToast("Could not set mode — run D-Helper as Administrator?");
+                                }
                             });
                         }
 
@@ -224,7 +229,8 @@ namespace GHelper.Mode
                 }
             }, ct);
 
-            if (notify) Toast();
+            // Dell toasts after CCTK returns (inside task). ASUS can toast immediately.
+            if (notify && !Program.acpi.IsDellPlatform) Toast();
 
             // Power plan / boost on background so mode clicks never freeze the UI
             int applyMode = mode;
@@ -283,18 +289,13 @@ namespace GHelper.Mode
 
         public void AutoFans(bool force = false)
         {
+            // Dell thermal modes are CCTK-based; ASUS fan-curve path not used
+            if (Program.acpi.IsDellPlatform) { SetModeLabel(); return; }
+
             customFans = false;
 
             if (AppConfig.IsApplyFans() || force)
             {
-
-                bool xgmFan = false;
-                if (AppConfig.Is("xgm_fan"))
-                {
-                    XGM.SetFan(AppConfig.GetFanConfig(AsusFan.XGM));
-                    xgmFan = Program.acpi.IsXGConnected();
-                }
-
                 int cpuResult = Program.acpi.SetFanCurve(AsusFan.CPU, AppConfig.GetFanConfig(AsusFan.CPU));
                 int gpuResult = Program.acpi.SetFanCurve(AsusFan.GPU, AppConfig.GetFanConfig(AsusFan.GPU));
 
@@ -327,7 +328,7 @@ namespace GHelper.Mode
                     Program.acpi.SetFanHysteresis(hystUp, hystDown);
 
                 // force set PPTs for missbehaving bios on FX507/517 series
-                if ((AppConfig.IsPowerRequired() || xgmFan) && !AppConfig.IsApplyPower())
+                if (AppConfig.IsPowerRequired() && !AppConfig.IsApplyPower())
                 {
                     Task.Run(async () =>
                     {
@@ -337,9 +338,6 @@ namespace GHelper.Mode
                     });
                 }
 
-            } else
-            {
-                XGM.Reset();
             }
 
             SetModeLabel();
@@ -348,6 +346,8 @@ namespace GHelper.Mode
 
         public void AutoPower(bool launchAsAdmin = false)
         {
+            // Dell PPT/TGP DeviceSet path is ASUS WMI — skip on Dell
+            if (Program.acpi.IsDellPlatform) return;
 
             customPower = 0;
 
@@ -692,12 +692,14 @@ namespace GHelper.Mode
 
         public void ShutdownReset()
         {
+            if (Program.acpi.IsDellPlatform) return; // ASUS WMI mode reset
             if (!AppConfig.IsShutdownReset()) return;
             Program.acpi.DeviceSet(AsusACPI.PerformanceMode,AsusACPI.PerformanceBalanced, "Mode Reset");
         }
 
         public void SleepReset()
         {
+            if (Program.acpi.IsDellPlatform) return; // ASUS WMI mode reset
             if (!AppConfig.IsSleepReset()) return;
             Program.acpi.DeviceSet(AsusACPI.PerformanceMode, Modes.GetCurrentBase(), "Sleep Reset");
         }

@@ -17,21 +17,9 @@ namespace GHelper.Helpers
 
         public void Init()
         {
-            _button.Click += Button_Click;
-            _button.MouseUp += Button_MouseUp;
-
-            if (!AppConfig.Is("donate_dismissed"))
-            {
-                int click = AppConfig.Get("donate_click");
-                int startCount = AppConfig.Get("start_count");
-                int badge = GetBadge(startCount, click);
-                if (badge > 0)
-                {
-                    _button.BorderColor = RForm.colorTurbo;
-                    _button.Badge = GetBadge(startCount - 1, click);
-                    if (_button.Badge < badge) _settings.VisibleChanged += Settings_VisibleChanged;
-                }
-            }
+            // D-Helper: no donate / g-helper.com support link
+            _button.Visible = false;
+            _button.Badge = 0;
         }
 
         private static int GetBadge(int startCount, int click)
@@ -95,12 +83,7 @@ namespace GHelper.Helpers
             _contextMenu.Show(_button, new Point(e.X, e.Y));
         }
 
-        private void Button_Click(object? sender, EventArgs e)
-        {
-            AppConfig.Set("donate_click", AppConfig.Get("start_count"));
-            SetThankYou();
-            Process.Start(new ProcessStartInfo("https://g-helper.com/support") { UseShellExecute = true });
-        }
+        private void Button_Click(object? sender, EventArgs e) { }
 
         private void SetThankYou()
         {

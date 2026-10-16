@@ -1,4 +1,3 @@
-using GHelper.Ally;
 using GHelper.Battery;
 using GHelper.Display;
 using GHelper.Gpu;
@@ -6,13 +5,10 @@ using GHelper.Helpers;
 using GHelper.Input;
 using GHelper.Mode;
 using GHelper.Overlay;
-using GHelper.Peripherals;
-using GHelper.USB;
 using Microsoft.Win32;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
-using System.Text;
 using static NativeMethods;
 
 namespace GHelper
@@ -27,7 +23,6 @@ namespace GHelper
 
         public static ModeControl modeControl;
         public static GPUModeControl gpuControl;
-        public static AllyControl allyControl;
         public static ClamshellModeControl clamshellControl;
 
         public static ToastForm toast;
@@ -92,18 +87,6 @@ namespace GHelper
 
             if (!acpi.IsConnected())
             {
-                if (AppConfig.IsASUS() && !AppConfig.IsDesktop())
-                {
-                    DialogResult dialogResult = MessageBox.Show(Properties.Strings.ACPIError, Properties.Strings.StartupError, MessageBoxButtons.YesNo);
-                    if (dialogResult == DialogResult.Yes)
-                    {
-                        Process.Start(new ProcessStartInfo("https://www.asus.com/support/FAQ/1047338/") { UseShellExecute = true });
-                    }
-
-                    Application.Exit();
-                    return;
-                }
-
                 MessageBox.Show(
                     "D-Helper needs Dell Optimizer and/or Dell Command | Configure.\n\nInstall them from Dell Support, then run D-Helper as Administrator.",
                     "D-Helper — Startup Error",
@@ -113,16 +96,9 @@ namespace GHelper
                 return;
             }
 
-            if (!acpi.IsDellPlatform)
-            {
-                ProcessHelper.KillSmartDisplayControl();
-                AsusService.StopOnStartup();
-            }
-
             settingsForm = new SettingsForm();
             modeControl = new ModeControl();
             gpuControl = new GPUModeControl(settingsForm);
-            allyControl = new AllyControl(settingsForm);
             clamshellControl = new ClamshellModeControl();
             toast = new ToastForm();
 
@@ -130,12 +106,9 @@ namespace GHelper
 
             Application.EnableVisualStyles();
 
-            if (!acpi.IsDellPlatform)
-                HardwareControl.RecreateGpuControl();
-
             trayIcon = new NotifyIcon
             {
-                Text = acpi.IsDellPlatform ? "D-Helper" : "G-Helper",
+                Text = "D-Helper",
                 // Clone — never assign shared Resources icon (VisualiseIcon must be free to dispose tray icons)
                 Icon = GHelper.UI.IconHelper.CloneIcon(Properties.Resources.standard),
                 Visible = true
@@ -148,10 +121,7 @@ namespace GHelper
             WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
             Logger.WriteLine($"Tray Icon: {trayIcon.Visible} | {WM_TASKBARCREATED}");
 
-            if (acpi.IsDellPlatform)
-                Modes.InitDellCool();
-            else
-                Modes.InitFullSpeed();
+            Modes.InitDellCool();
 
             settingsForm.SetContextMenu();
             trayIcon.MouseClick += TrayIcon_MouseClick;
@@ -160,15 +130,7 @@ namespace GHelper
 
             inputDispatcher = new InputDispatcher();
 
-            if (acpi.IsDellPlatform)
-            {
-                settingsForm.InitDellPlatform();
-            }
-            else
-            {
-                settingsForm.InitAura();
-                settingsForm.InitMatrix();
-            }
+            settingsForm.InitDellPlatform();
 
             ScreenControl.InitScreen();
 
@@ -192,17 +154,6 @@ namespace GHelper
             unRegPowerNotifyEnergy = NativeMethods.RegisterPowerSettingNotification(settingsForm.Handle, PowerSettingGuid.EnergySaverStatus, NativeMethods.DEVICE_NOTIFY_WINDOW_HANDLE);
             unRegSuspendResume = NativeMethods.RegisterSuspendResumeNotification(settingsForm.Handle, NativeMethods.DEVICE_NOTIFY_WINDOW_HANDLE);
 
-
-            if (!acpi.IsDellPlatform)
-            {
-                Task task = Task.Run(() =>
-                {
-                    PeripheralsProvider.DetectAllAsusMice();
-                    PeripheralsProvider.DetectAllAsusKeyboards();
-                    PeripheralsProvider.DetectAllAsusHeadsets();
-                });
-                PeripheralsProvider.RegisterForDeviceEvents();
-            }
 
             if (Environment.CurrentDirectory.Trim('\\') == Application.StartupPath.Trim('\\') || action.Length > 0)
             {
@@ -244,11 +195,6 @@ namespace GHelper
                     break;
             }
 
-            Task.Run(() =>
-            {
-                settingsForm.VisualiseArmoury(AsusService.IsArmouryRunning());
-            });
-
             if (AppConfig.IsOverlay())
                 hardwareOverlay?.StartOverlay();
 
@@ -263,7 +209,6 @@ namespace GHelper
             modeControl.ShutdownReset();
             BatteryControl.AutoBattery();
             InputDispatcher.ShutdownStatusLed();
-            XGM.NotifyShutdown();
         }
 
         private static void SystemEvents_SessionSwitch(object sender, SessionSwitchEventArgs e)
@@ -272,13 +217,9 @@ namespace GHelper
             {
                 Logger.WriteLine("Session:" + e.Reason.ToString());
                 ProcessHelper.KillSmartDisplayControl();
-                bool wasLocked = Aura.sessionLock;
-                Aura.sessionLock = false;
-                if (!AppConfig.Is("skip_aura")) Aura.ApplyAura();
                 Task.Delay(2000).ContinueWith(_ =>
                 {
                     ScreenControl.AutoScreen();
-                    if (!wasLocked) return;
                     if (Math.Abs(DateTimeOffset.Now.ToUnixTimeMilliseconds() - lastAuto) < 10000) return;
                     modeControl.AutoCPUTemp();
                 });
@@ -286,7 +227,6 @@ namespace GHelper
             if (e.Reason == SessionSwitchReason.SessionLock)
             {
                 Logger.WriteLine("Session:" + e.Reason.ToString());
-                Aura.sessionLock = true;
             }
         }
 
@@ -313,12 +253,6 @@ namespace GHelper
                     if (settingsForm.updatesForm is not null && settingsForm.updatesForm.Text != "")
                         settingsForm.updatesForm.InitTheme();
 
-                    if (settingsForm.matrixForm is not null && settingsForm.matrixForm.Text != "")
-                        settingsForm.matrixForm.InitTheme();
-
-                    if (settingsForm.handheldForm is not null && settingsForm.handheldForm.Text != "")
-                        settingsForm.handheldForm.InitTheme();
-
                     break;
             }
         }
@@ -341,50 +275,9 @@ namespace GHelper
             Logger.WriteLine("AutoSetting for " + SystemInformation.PowerStatus.PowerLineStatus.ToString());
 
             // Dell fast-path: no ASUS Aura/GPU/Matrix/WMI — keep UI responsive
-            if (acpi.IsDellPlatform)
-            {
-                BatteryControl.AutoBattery(init);
-                modeControl.AutoPerformance(powerChanged);
-                try { ScreenControl.AutoScreen(); } catch (Exception ex) { Logger.WriteLine("AutoScreen: " + ex.Message); }
-                return true;
-            }
-
             BatteryControl.AutoBattery(init);
-            if (init) InputDispatcher.InitScreenpad();
-            DynamicLightingHelper.Init();
-            ScreenControl.InitOptimalBrightness();
-
-            inputDispatcher.Init();
-            //HardwareControl.ReadSensors(true);
-
             modeControl.AutoPerformance(powerChanged);
-
-            if (powerChanged) settingsForm.matrixControl.SetMatrix(true);
-            else settingsForm.matrixControl.SetDevice(true);
-            InputDispatcher.InitStatusLed();
-            if (init) NumberPad.Init();
-            XGM.Init();
-
-            if (AppConfig.IsAlly())
-            {
-                allyControl.Init();
-            }
-            else
-            {
-                InputDispatcher.AutoKeyboard();
-            }
-
-            bool switched = gpuControl.AutoGPUMode(delay: 1000);
-            if (!switched)
-            {
-                gpuControl.InitGPUMode();
-                if (init) gpuControl.CheckStandardHalfState();
-                ScreenControl.AutoScreen();
-            }
-
-            ScreenControl.InitMiniled();
-            VisualControl.InitBrightness();
-
+            try { ScreenControl.AutoScreen(); } catch (Exception ex) { Logger.WriteLine("AutoScreen: " + ex.Message); }
             return true;
         }
 
@@ -439,7 +332,6 @@ namespace GHelper
                 gpuControl.StandardModeFix();
                 modeControl.ShutdownReset();
                 InputDispatcher.ShutdownStatusLed();
-                XGM.NotifyShutdown();
                 return;
             }
 
@@ -483,11 +375,7 @@ namespace GHelper
                 settingsForm.ShowAll();
 
                 settingsForm.Left = screen.WorkingArea.Right - 10 - settingsForm.Width;
-
-                if (AppConfig.IsAlly())
-                    settingsForm.Top = Math.Max(10, screen.Bounds.Height - 110 - settingsForm.Height);
-                else
-                    settingsForm.Top = screen.WorkingArea.Top > screen.Bounds.Top ? screen.WorkingArea.Top + 10 : screen.WorkingArea.Bottom - 10 - settingsForm.Height;
+                settingsForm.Top = screen.WorkingArea.Top > screen.Bounds.Top ? screen.WorkingArea.Top + 10 : screen.WorkingArea.Bottom - 10 - settingsForm.Height;
 
                 settingsForm.VisualiseGPUMode();
             }
@@ -513,7 +401,6 @@ namespace GHelper
                 trayIcon.Dispose();
             }
 
-            PeripheralsProvider.UnregisterForDeviceEvents();
             clamshellControl.UnregisterDisplayEvents();
             NativeMethods.UnregisterPowerSettingNotification(unRegPowerNotify);
             NativeMethods.UnregisterPowerSettingNotification(unRegPowerNotifyLid);
@@ -523,38 +410,15 @@ namespace GHelper
 
         static void Charge()
         {
-            if (AppConfig.IsZ13())
-            {
-                AsusHid.Write([
-                    Encoding.ASCII.GetBytes("]ASUS Tech.Inc."),
-                    [AsusHid.AURA_ID, 0xC0, 0x03, 0x01]
-                ], "Init");
-            }
-
             try
             {
-                int limit = AppConfig.Get("charge_limit");
                 acpi = new AsusACPI();
-                if (limit > 0 && limit < 100)
-                {
-                    Logger.WriteLine($"------- Startup Battery Limit {limit} -------");
-                    if (acpi.IsConnected()) acpi.DeviceSet(AsusACPI.BatteryLimit, limit, "Limit");
-                    else AsusACPI.DeviceSetWmi(AsusACPI.BatteryLimit, limit);
-                }
+                // Dell: main app AutoBattery applies CCTK — boot charge task would double-write (~13s each)
+                Logger.WriteLine("------- Startup Battery Limit skipped (Dell; main app applies) -------");
             }
             catch (Exception ex)
             {
                 Logger.WriteLine("Startup Battery Limit Error: " + ex.Message);
-            }
-
-            try
-            {
-                if (!acpi.IsDellPlatform)
-                    InputDispatcher.StartupBacklight();
-            }
-            catch (Exception ex)
-            {
-                Logger.WriteLine($"Startup Backlight: {ex.Message}");
             }
 
             Application.Exit();

@@ -26,41 +26,17 @@ namespace GHelper.AutoUpdate
 
         public void CheckForUpdates()
         {
-            // Run update once per 12 hours
-            if (Math.Abs(DateTimeOffset.Now.ToUnixTimeSeconds() - lastUpdate) < 43200) return;
-            lastUpdate = DateTimeOffset.Now.ToUnixTimeSeconds();
-
-            Task.Run(async () =>
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-                CheckForUpdatesAsync();
-            });
+            // D-Helper: do not check upstream G-Helper GitHub releases
         }
 
         public void Update()
         {
-            if (update)
-            {
-                Task.Run(() =>
-                {
-                    CheckForUpdatesAsync(true);
-                });
-            } else
-            {
-                LoadReleases();
-            }
+            // D-Helper: no upstream releases page
         }
 
         public void LoadReleases()
         {
-            try
-            {
-                Process.Start(new ProcessStartInfo(versionUrl) { UseShellExecute = true });
-            }
-            catch (Exception ex)
-            {
-                Logger.WriteLine("Failed to open releases page:" + ex.Message);
-            }
+            // D-Helper: do not open seerge/g-helper GitHub
         }
 
         async void CheckForUpdatesAsync(bool force = false)

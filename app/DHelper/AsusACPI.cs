@@ -1,6 +1,5 @@
 ﻿using GHelper;
 using GHelper.Dell;
-using GHelper.USB;
 using System.Collections.Concurrent;
 using System.Management;
 using System.Runtime.InteropServices;
@@ -594,12 +593,23 @@ public class AsusACPI
 
         if (deviceId == BatteryLimit)
         {
-            int stop = Math.Clamp(status, 55, 100);
-            int start = AppConfig.Get("charge_start", 50);
-            start = Math.Clamp(start, 50, Math.Max(50, stop - 5));
-            bool ok = _dellHal.SetChargeMode(ChargeMode.Custom, start, stop, out string error);
+            var policy = GHelper.Battery.BatteryControl.GetDellChargeMode();
+            bool ok;
+            string error;
+            if (policy == ChargeMode.Custom)
+            {
+                int stop = Math.Clamp(status, 55, 100);
+                int start = AppConfig.Get("charge_start", 50);
+                start = Math.Clamp(start, 50, Math.Max(50, stop - 5));
+                ok = _dellHal.SetChargeMode(ChargeMode.Custom, start, stop, out error);
+            }
+            else
+            {
+                // Preserve Extra Standard / Adaptive / Express / PrimarilyAC — do not force Custom
+                ok = _dellHal.SetChargeMode(policy, null, null, out error);
+            }
             if (logName is not null)
-                Logger.WriteLine($"{logName} = {status} : {(ok ? "OK" : error)}");
+                Logger.WriteLine($"{logName} = {status} ({policy}) : {(ok ? "OK" : error)}");
             return ok ? 1 : 0;
         }
 
@@ -1063,7 +1073,7 @@ public class AsusACPI
 
     }
 
-    public void TUFKeyboardRGB(AuraMode mode, Color color, int speed, string? log = "TUF RGB")
+    public void TUFKeyboardRGB(int mode, Color color, int speed, string? log = "TUF RGB")
     {
 
         byte[] setting = new byte[6];

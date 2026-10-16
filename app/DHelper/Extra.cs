@@ -6,7 +6,6 @@ using GHelper.Helpers;
 using GHelper.Input;
 using GHelper.Mode;
 using GHelper.UI;
-using GHelper.USB;
 using System.Diagnostics;
 
 namespace GHelper
@@ -134,7 +133,6 @@ namespace GHelper
 
                 if (name == "m1" || name == "m2" || name == "m3" || name == "m4" || name == "m5")
                 {
-                    MKeyControl.ApplyAll();
                     Program.inputDispatcher.RegisterKeys();
                 }
 
@@ -352,32 +350,25 @@ namespace GHelper
             InitTheme();
             Shown += Keyboard_Shown;
 
+            // Aura speed combo left unbound (Designer control kept for Dell hide path)
             comboKeyboardSpeed.DropDownStyle = ComboBoxStyle.DropDownList;
-            comboKeyboardSpeed.DataSource = new BindingSource(Aura.GetSpeeds(), null);
-            comboKeyboardSpeed.DisplayMember = "Value";
-            comboKeyboardSpeed.ValueMember = "Key";
-            comboKeyboardSpeed.SelectedValue = Aura.Speed;
-            comboKeyboardSpeed.SelectedValueChanged += ComboKeyboardSpeed_SelectedValueChanged;
 
-            // Keyboard
+            // Keyboard backlight power flags (config only — no Aura apply)
             checkAwake.Checked = AppConfig.IsNotFalse("keyboard_awake");
             checkBattery.Checked = AppConfig.IsOnBattery("keyboard_awake");
             checkBoot.Checked = AppConfig.IsNotFalse("keyboard_boot");
             checkSleep.Checked = AppConfig.IsNotFalse("keyboard_sleep");
 
-            // Lightbar
             checkAwakeBar.Checked = AppConfig.IsNotFalse("keyboard_awake_bar");
             checkBatteryBar.Checked = AppConfig.IsOnBattery("keyboard_awake_bar");
             checkBootBar.Checked = AppConfig.IsNotFalse("keyboard_boot_bar");
             checkSleepBar.Checked = AppConfig.IsNotFalse("keyboard_sleep_bar");
 
-            // Lid
             checkAwakeLid.Checked = AppConfig.IsNotFalse("keyboard_awake_lid");
             checkBatteryLid.Checked = AppConfig.IsOnBattery("keyboard_awake_lid");
             checkBootLid.Checked = AppConfig.IsNotFalse("keyboard_boot_lid");
             checkSleepLid.Checked = AppConfig.IsNotFalse("keyboard_sleep_lid");
 
-            // Logo
             checkAwakeLogo.Checked = AppConfig.IsNotFalse("keyboard_awake_logo");
             checkBatteryLogo.Checked = AppConfig.IsOnBattery("keyboard_awake_logo");
             checkBootLogo.Checked = AppConfig.IsNotFalse("keyboard_boot_logo");
@@ -409,32 +400,22 @@ namespace GHelper
                 checkBattery.Visible = false;
             }
 
-            if (!Aura.HasLightbar)
-            {
-                labelBacklightBar.Visible = false;
-                checkAwakeBar.Visible = false;
-                checkBatteryBar.Visible = false;
-                checkBootBar.Visible = false;
-                checkSleepBar.Visible = false;
-            }
-
-            if (!Aura.HasLogo)
-            {
-                labelBacklightLogo.Visible = false;
-                checkAwakeLogo.Visible = false;
-                checkBatteryLogo.Visible = false;
-                checkBootLogo.Visible = false;
-                checkSleepLogo.Visible = false;
-            }
-
-            if (!Aura.HasRearglow)
-            {
-                labelBacklightLid.Visible = false;
-                checkAwakeLid.Visible = false;
-                checkBatteryLid.Visible = false;
-                checkBootLid.Visible = false;
-                checkSleepLid.Visible = false;
-            }
+            // Hide Aura zone chrome by default (Dell ApplyDellExtraVisibility also hides panel)
+            labelBacklightBar.Visible = false;
+            checkAwakeBar.Visible = false;
+            checkBatteryBar.Visible = false;
+            checkBootBar.Visible = false;
+            checkSleepBar.Visible = false;
+            labelBacklightLogo.Visible = false;
+            checkAwakeLogo.Visible = false;
+            checkBatteryLogo.Visible = false;
+            checkBootLogo.Visible = false;
+            checkSleepLogo.Visible = false;
+            labelBacklightLid.Visible = false;
+            checkAwakeLid.Visible = false;
+            checkBatteryLid.Visible = false;
+            checkBootLid.Visible = false;
+            checkSleepLid.Visible = false;
 
             //checkAutoToggleClamshellMode.Visible = clamshellControl.IsExternalDisplayConnected();
             checkAutoToggleClamshellMode.Checked = AppConfig.Is("toggle_clamshell_mode");
@@ -458,9 +439,9 @@ namespace GHelper
             sliderBrightness.AccessibleName = Properties.Strings.LaptopBacklight + ": " + sliderBrightness.Value;
             sliderBrightness.ValueChanged += SliderBrightness_ValueChanged;
 
-            panelXGM.Visible = XGM.IsConnected();
-            checkXGM.Checked = !(AppConfig.Get("xmg_light") == 0);
-            checkXGM.CheckedChanged += CheckXGM_CheckedChanged;
+            // Always hide ASUS services / XGM chrome (Dell-only)
+            panelServices.Visible = false;
+            panelXGM.Visible = false;
 
             numericBacklightTime.Value = AppConfig.Get("keyboard_timeout", 60);
             numericBacklightPluggedTime.Value = AppConfig.Get("keyboard_ac_timeout", 0);
@@ -781,7 +762,6 @@ namespace GHelper
             else
                 AppConfig.Set("keyboard_brightness", sliderBrightness.Value);
 
-            Aura.ApplyBrightness(sliderBrightness.Value, "Slider");
             sliderBrightness.AccessibleName = Properties.Strings.LaptopBacklight + ": " + sliderBrightness.Value;
         }
 
@@ -794,72 +774,15 @@ namespace GHelper
             sliderBrightness.ValueChanged += SliderBrightness_ValueChanged;
         }
 
-        private void InitServices()
-        {
-            buttonServices.Enabled = false;
-            Task.Run(() =>
-            {
-                int servicesCount = AsusService.GetRunningCount();
-                if (!IsDisposed) Invoke(() => VisualiseServices(servicesCount));
-            });
-        }
-
         private void VisualiseServices(int servicesCount)
         {
-            if (servicesCount > 0)
-            {
-                buttonServices.Text = Properties.Strings.Stop;
-                labelServices.ForeColor = colorTurbo;
-            }
-            else
-            {
-                buttonServices.Text = Properties.Strings.Start;
-                labelServices.ForeColor = colorStandard;
-            }
-
             labelServices.Text = Properties.Strings.AsusServicesRunning + ":  " + servicesCount;
-            buttonServices.Enabled = true;
-
-        }
-
-        public void ServiesToggle()
-        {
             buttonServices.Enabled = false;
-
-            if (AsusService.GetRunningCount() > 0)
-            {
-                labelServices.Text = Properties.Strings.StoppingServices + " ...";
-                Task.Run(() =>
-                {
-                    AsusService.StopAsusServices();
-                    Program.inputDispatcher.Init();
-                    BeginInvoke(delegate
-                    {
-                        InitServices();
-                    });
-                });
-            }
-            else
-            {
-                labelServices.Text = Properties.Strings.StartingServices + " ...";
-                Task.Run(() =>
-                {
-                    AsusService.StartAsusServices();
-                    BeginInvoke(delegate
-                    {
-                        InitServices();
-                    });
-                });
-            }
         }
 
-        private void ButtonServices_Click(object? sender, EventArgs e)
-        {
-            if (ProcessHelper.IsUserAdministrator())
-                ServiesToggle();
-            else
-                ProcessHelper.RunAsAdmin("services");
-        }
+        public void ServiesToggle() { }
+
+        private void ButtonServices_Click(object? sender, EventArgs e) { }
 
         private void CheckGpuApps_CheckedChanged(object? sender, EventArgs e)
         {
@@ -876,7 +799,6 @@ namespace GHelper
         private void CheckXGM_CheckedChanged(object? sender, EventArgs e)
         {
             AppConfig.Set("xmg_light", (checkXGM.Checked ? 1 : 0));
-            XGM.Light(checkXGM.Checked);
         }
 
         private void CheckELMB_CheckedChanged(object? sender, EventArgs e)
@@ -892,7 +814,8 @@ namespace GHelper
 
         private void PictureHelp_Click(object? sender, EventArgs e)
         {
-            Process.Start(new ProcessStartInfo("https://github.com/seerge/g-helper/wiki/Power-user-settings#custom-hotkey-actions") { UseShellExecute = true });
+            // D-Helper: no upstream G-Helper wiki link
+
         }
 
         private void ButtonResetBindings_Click(object? sender, EventArgs e)
@@ -905,7 +828,6 @@ namespace GHelper
 
             textM1.Text = textM2.Text = textM3.Text = textM4.Text = textM5.Text = "";
 
-            MKeyControl.Reset();
             Program.inputDispatcher.RegisterKeys();
         }
 
@@ -951,16 +873,12 @@ namespace GHelper
                 AppConfig.Set("keyboard_awake_lid_bat", (checkBatteryLid.Checked ? 1 : 0));
                 AppConfig.Set("keyboard_awake_logo_bat", (checkBatteryLogo.Checked ? 1 : 0));
             }
-
-            Aura.ApplyPower();
-            if (Aura.IsOldStrix) Aura.ApplyAura();
-
         }
 
         private void ComboKeyboardSpeed_SelectedValueChanged(object? sender, EventArgs e)
         {
-            AppConfig.Set("aura_speed", (int)comboKeyboardSpeed.SelectedValue);
-            Aura.ApplyAura();
+            if (comboKeyboardSpeed.SelectedValue is int speed)
+                AppConfig.Set("aura_speed", speed);
         }
 
 
@@ -987,8 +905,8 @@ namespace GHelper
             }
 
             Left = Program.settingsForm.Left - Width - 5;
-            if (!Program.acpi.IsDellPlatform)
-                InitServices();
+            panelServices.Visible = false;
+            panelXGM.Visible = false;
         }
 
         /// <summary>Final Dell visibility pass — hides ASUS chrome that later ctor code may re-enable.</summary>
@@ -998,6 +916,7 @@ namespace GHelper
             panelBacklightHeader.Visible = false;
             panelBacklightExtra.Visible = false;
             panelServices.Visible = false;
+            panelXGM.Visible = false;
             panelAPU.Visible = false;
             panelCores.Visible = false;
             panelACPI.Visible = false;

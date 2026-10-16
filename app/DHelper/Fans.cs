@@ -3,7 +3,6 @@ using GHelper.Gpu.NVidia;
 using GHelper.Helpers;
 using GHelper.Mode;
 using GHelper.UI;
-using GHelper.USB;
 using PawnIO;
 using System.Diagnostics;
 using System.Windows.Forms.DataVisualization.Charting;
@@ -1234,19 +1233,9 @@ namespace GHelper
                 AppConfig.Set("mid_fan", 0);
             }
 
-            // XG Mobile Fan check
-            if (Program.acpi.IsXGConnected() || XGM.IsConnected())
-            {
-                AppConfig.Set("xgm_fan", 1);
-                chartCount++;
-                chartXGM.Visible = true;
-                SetChart(chartXGM, AsusFan.XGM);
-                LoadProfile(seriesXGM, AsusFan.XGM);
-            }
-            else
-            {
-                AppConfig.Set("xgm_fan", 0);
-            }
+            // XG Mobile chart kept for designer layout but always hidden on Dell-only builds
+            AppConfig.Set("xgm_fan", 0);
+            chartXGM.Visible = false;
 
             try
             {
@@ -1380,9 +1369,6 @@ namespace GHelper
             modeControl.ResetPerformanceMode();
 
             InitPowerPlan();
-
-            XGM.Reset();
-
 
             if (gpuVisible)
             {

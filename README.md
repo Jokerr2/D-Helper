@@ -52,7 +52,7 @@ dotnet publish DHelper\DHelper.csproj -c Release -r win-x64 --self-contained fal
 
 One output: `publish\DHelper.exe`.
 
-See [docs/SETUP.md](docs/SETUP.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md), [docs/GHELPER_UI_MAP.md](docs/GHELPER_UI_MAP.md).
+See [docs/SETUP.md](docs/SETUP.md), [docs/CAPABILITIES.md](docs/CAPABILITIES.md), [docs/DHELPER_UI_MAP.md](docs/DHELPER_UI_MAP.md).
 
 ## Probe this PC
 
